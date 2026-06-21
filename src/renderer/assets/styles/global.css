@@ -1,0 +1,117 @@
+/* ── CSS Custom Properties ── */
+:root {
+  --sider-bg: #001529;
+  --content-bg: #f5f5f5;
+  --footer-bg: #fafafa;
+  --border-color: #e8e8e8;
+  --text-primary: rgba(0, 0, 0, 0.85);
+  --text-secondary: rgba(0, 0, 0, 0.45);
+
+  /* CS2 Rarity Colors */
+  --rarity-consumer: #b0c4d8;
+  --rarity-industrial: #5e98d9;
+  --rarity-milspec: #4b69ff;
+  --rarity-restricted: #8847ff;
+  --rarity-classified: #d32ce6;
+  --rarity-covert: #eb4b4b;
+  --rarity-rare-special: #ffd700;
+  --rarity-contraband: #ffae39;
+
+  /* Wear category colors */
+  --wear-fn: #5e98d9;
+  --wear-mw: #8847ff;
+  --wear-ft: #4b69ff;
+  --wear-ww: #d32ce6;
+  --wear-bs: #eb4b4b;
+
+  /* Scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
+/* ── Dark Theme ── */
+[data-theme='dark'] {
+  --sider-bg: #001529;
+  --content-bg: #141414;
+  --footer-bg: #1f1f1f;
+  --border-color: #303030;
+  --text-primary: rgba(255, 255, 255, 0.85);
+  --text-secondary: rgba(255, 255, 255, 0.45);
+}
+
+/* ── Reset & Base ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--text-primary);
+  background: var(--content-bg);
+}
+
+/* ── Scrollbar Styling ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* ── Utility Classes ── */
+.rarity-consumer { color: var(--rarity-consumer); }
+.rarity-industrial { color: var(--rarity-industrial); }
+.rarity-milspec { color: var(--rarity-milspec); }
+.rarity-restricted { color: var(--rarity-restricted); }
+.rarity-classified { color: var(--rarity-classified); }
+.rarity-covert { color: var(--rarity-covert); }
+.rarity-rare-special { color: var(--rarity-rare-special); }
+.rarity-contraband { color: var(--rarity-contraband); }
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Ant Design Overrides ── */
+.ant-table-wrapper {
+  background: transparent;
+}
+
+.ant-card {
+  border-radius: 8px;
+}
+
+/* Inventory table row hover accent */
+.inventory-row-consumer:hover { background-color: rgba(176, 196, 216, 0.08) !important; }
+.inventory-row-milspec:hover { background-color: rgba(75, 105, 255, 0.08) !important; }
+.inventory-row-restricted:hover { background-color: rgba(136, 71, 255, 0.08) !important; }
+.inventory-row-classified:hover { background-color: rgba(211, 44, 230, 0.08) !important; }
+.inventory-row-covert:hover { background-color: rgba(235, 75, 75, 0.08) !important; }

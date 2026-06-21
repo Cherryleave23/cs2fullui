@@ -1,0 +1,117 @@
+import { create } from 'zustand';
+import type { ResolvedItem } from '../../shared/types/item';
+
+export interface TradeUpSlotItem {
+  assetId: string;
+  name: string;
+  nameZh?: string;
+  rarity: string;
+  rarityZh?: string;
+  rarityColor?: string;
+  wearFloat: number;
+  minFloat: number;
+  maxFloat: number;
+  collection: string;
+  weaponType?: string;
+  isStatTrak: boolean;
+  isSouvenir: boolean;
+  imageUrl?: string;
+}
+
+export interface SimOutcome {
+  name: string;
+  nameZh?: string;
+  collection: string;
+  probability: number;
+  estWearFloat: number;
+  estWearCategory: string;
+  rarity: string;
+  imageUrl?: string;
+}
+
+export interface TradeUpState {
+  slots: (TradeUpSlotItem | null)[];
+  outcomes: SimOutcome[];
+  avgWearNorm: number;
+  targetRarity: string;
+  targetRarityZh: string;
+  simulating: boolean;
+  error: string | null;
+
+  // Actions
+  setSlot: (index: number, item: TradeUpSlotItem | null) => void;
+  fillFromInventory: (items: ResolvedItem[]) => void;
+  clearAll: () => void;
+  removeSlot: (index: number) => void;
+  setSimulationResult: (result: {
+    outcomes: SimOutcome[];
+    avgWearNorm: number;
+    targetRarity: string;
+    targetRarityZh: string;
+    error?: string;
+  }) => void;
+  setSimulating: (v: boolean) => void;
+  getFilledItems: () => TradeUpSlotItem[];
+}
+
+export const useTradeUpStore = create<TradeUpState>((set, get) => ({
+  slots: Array(10).fill(null),
+  outcomes: [],
+  avgWearNorm: 0,
+  targetRarity: '',
+  targetRarityZh: '',
+  simulating: false,
+  error: null,
+
+  setSlot: (index, item) => {
+    const slots = [...get().slots];
+    slots[index] = item;
+    set({ slots, error: null });
+  },
+
+  fillFromInventory: (items) => {
+    const slots: (TradeUpSlotItem | null)[] = Array(10).fill(null);
+    for (let i = 0; i < Math.min(items.length, 10); i++) {
+      slots[i] = {
+        assetId: items[i].assetId,
+        name: items[i].resolvedNameZh || items[i].resolvedName,
+        nameZh: items[i].resolvedNameZh,
+        rarity: items[i].rarityName || '',
+        rarityZh: items[i].rarityNameZh,
+        rarityColor: items[i].rarityColor,
+        wearFloat: items[i].paintWear,
+        minFloat: items[i].minFloat,
+        maxFloat: items[i].maxFloat,
+        collection: items[i].collectionName || '未知',
+        weaponType: items[i].weaponType,
+        isStatTrak: items[i].isStatTrak,
+        isSouvenir: items[i].isSouvenir,
+        imageUrl: items[i].imageUrl,
+      };
+    }
+    set({ slots, error: null });
+  },
+
+  clearAll: () => set({ slots: Array(10).fill(null), outcomes: [], error: null }),
+
+  removeSlot: (index) => {
+    const slots = [...get().slots];
+    slots[index] = null;
+    set({ slots, error: null });
+  },
+
+  setSimulationResult: (result) => {
+    set({
+      outcomes: result.outcomes || [],
+      avgWearNorm: result.avgWearNorm,
+      targetRarity: result.targetRarity,
+      targetRarityZh: result.targetRarityZh,
+      error: result.error || null,
+      simulating: false,
+    });
+  },
+
+  setSimulating: (v) => set({ simulating: v, error: null }),
+
+  getFilledItems: () => get().slots.filter(Boolean) as TradeUpSlotItem[],
+}));
