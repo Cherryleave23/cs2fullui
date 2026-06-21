@@ -33,14 +33,13 @@ export function registerSteamDirect(): void {
   //  LIST SAVED ACCOUNTS
   // ═══════════════════════════════════════
   ipcMain.handle('steam:list-saved', async () => {
-    return AccountRepo.getAll().map(a => ({
-      steamId: a.steam_id,
-      accountName: a.account_name,
-      nickname: a.nickname || a.account_name,
-      hasToken: !!a.refresh_token,
-      isActive: a.is_active === 1,
-      lastLogin: a.last_login_at,
-    }));
+    try {
+      return AccountRepo.getAll().map(a => ({
+        steamId: a.steam_id, accountName: a.account_name,
+        nickname: a.nickname || a.account_name,
+        hasToken: !!a.refresh_token, isActive: a.is_active === 1, lastLogin: a.last_login_at,
+      }));
+    } catch (_) { return []; }
   });
 
   // ═══════════════════════════════════════
@@ -80,34 +79,26 @@ export function registerSteamDirect(): void {
         const steamId = client.steamID?.getSteamID64?.();
         console.log(`[SteamDirect] Logged on: ${steamId}`);
 
-        // Persist account info
-        AccountRepo.upsert({
-          steamId,
-          accountName: currentAccountName,
-          nickname: params.nickname || currentAccountName,
-          proxyUrl: params.proxyUrl || undefined,
-        });
-        AccountRepo.setActive(steamId);
+        // Persist account (non-blocking — DB errors don't affect login)
+        try { AccountRepo.upsert({ steamId, accountName: currentAccountName, nickname: params.nickname || currentAccountName, proxyUrl: params.proxyUrl || undefined }); } catch (_) {}
+        try { AccountRepo.setActive(steamId); } catch (_) {}
 
         client.setPersona(SteamUser.EPersonaState.Online);
         client.gamesPlayed([730]);
         send({ type: 'logged-in', steamId, accountName: currentAccountName });
       });
 
-      // refreshToken — persist per tech reference
+      // refreshToken — persist (non-blocking)
       client.on('refreshToken', (token: string) => {
         const steamId = client.steamID?.getSteamID64?.();
-        console.log(`[SteamDirect] refreshToken saved for ${steamId}`);
-        if (steamId) {
-          AccountRepo.updateToken(steamId, token);
-        }
+        try { if (steamId) AccountRepo.updateToken(steamId, token); } catch (_) {}
         send({ type: 'token-saved' });
       });
 
       // machineAuthToken
       client.on('machineAuthToken', (token: string) => {
         const steamId = client.steamID?.getSteamID64?.();
-        if (steamId) AccountRepo.updateMachineToken(steamId, token);
+        try { if (steamId) AccountRepo.updateMachineToken(steamId, token); } catch (_) {}
       });
 
       // steamGuard — 30s cooldown on wrong code
@@ -129,12 +120,12 @@ export function registerSteamDirect(): void {
         }
       });
 
-      // disconnected — clear token if expired
+      // disconnected — clear token if expired (non-blocking)
       client.on('disconnected', (eresult: number, msg: string) => {
         console.log(`[SteamDirect] Disconnected: ${msg} (${eresult})`);
         if (eresult === 84 || eresult === 63) {
           const steamId = client.steamID?.getSteamID64?.();
-          if (steamId) AccountRepo.updateToken(steamId, '');
+          try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
         }
         send({ type: 'error', message: `断开: ${msg}` });
         destroy();
@@ -145,7 +136,7 @@ export function registerSteamDirect(): void {
         console.error(`[SteamDirect] Error: ${err.message}`);
         if (err.eresult === 84) {
           const steamId = client.steamID?.getSteamID64?.();
-          if (steamId) AccountRepo.updateToken(steamId, '');
+          try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
         }
         send({ type: 'error', message: err.message });
         destroy();
@@ -197,11 +188,17 @@ export function registerSteamDirect(): void {
           resolve({ success: false, error: `断开: ${msg} (${eresult})` });
         });
 
-        // ── Token-first: check DB for saved token ──
-        const saved = AccountRepo.getAll().find(a => a.account_name === params.accountName);
-        if (saved?.refresh_token) {
+        // ── Token-first: check DB for saved token (non-blocking) ──
+        let savedToken: string | null = null;
+        let savedSteamId: string | null = null;
+        try {
+          const saved = AccountRepo.getAll().find(a => a.account_name === params.accountName);
+          if (saved?.refresh_token) { savedToken = saved.refresh_token; savedSteamId = saved.steam_id; }
+        } catch (_) { /* DB unavailable — fall through to password */ }
+
+        if (savedToken && savedSteamId) {
           console.log(`[SteamDirect] Token login: ${params.accountName}`);
-          client.logOn({ refreshToken: saved.refresh_token, steamID: saved.steam_id });
+          client.logOn({ refreshToken: savedToken, steamID: savedSteamId });
         } else {
           console.log(`[SteamDirect] Password login: ${params.accountName}`);
           client.logOn({ accountName: params.accountName, password: params.password });

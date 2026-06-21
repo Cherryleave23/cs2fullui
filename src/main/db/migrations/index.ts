@@ -1,12 +1,11 @@
+/**
+ * Inline SQL migrations — no filesystem dependency.
+ * sql.js WASM build does NOT support DEFAULT (datetime('now')) — all datetime
+ * defaults removed; application code handles timestamps.
+ */
 import { getDatabase, saveDatabase, dbGet, dbRun } from '../connection';
 
-/**
- * All migration SQL embedded inline (not loaded from filesystem).
- * sql.js db.run() only executes ONE statement — must split by semicolons.
- */
-
 const MIGRATION_001 = `
--- Accounts
 CREATE TABLE IF NOT EXISTS accounts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     steam_id        TEXT NOT NULL UNIQUE,
@@ -20,14 +19,12 @@ CREATE TABLE IF NOT EXISTS accounts (
     web_compat      INTEGER DEFAULT 0,
     is_active       INTEGER DEFAULT 0,
     last_login_at   TEXT,
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now'))
+    created_at      TEXT,
+    updated_at      TEXT
 );
-
--- Inventory items
 CREATE TABLE IF NOT EXISTS inventory_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id      INTEGER NOT NULL REFERENCES accounts(id),
+    account_id      INTEGER,
     asset_id        TEXT NOT NULL UNIQUE,
     def_index       INTEGER NOT NULL,
     paint_index     REAL,
@@ -61,12 +58,10 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     is_souvenir     INTEGER DEFAULT 0,
     extra_json      TEXT
 );
-
--- Trade-up history
 CREATE TABLE IF NOT EXISTS tradeup_history (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id      INTEGER NOT NULL REFERENCES accounts(id),
-    recipe_id       INTEGER REFERENCES recipes(id),
+    account_id      INTEGER,
+    recipe_id       INTEGER,
     recipe_index    INTEGER NOT NULL,
     input_rarity    TEXT NOT NULL,
     target_rarity   TEXT NOT NULL,
@@ -76,13 +71,11 @@ CREATE TABLE IF NOT EXISTS tradeup_history (
     started_at      TEXT,
     completed_at    TEXT,
     error_message   TEXT,
-    created_at      TEXT DEFAULT (datetime('now'))
+    created_at      TEXT
 );
-
--- Trade-up input items
 CREATE TABLE IF NOT EXISTS tradeup_input_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    tradeup_id      INTEGER NOT NULL REFERENCES tradeup_history(id) ON DELETE CASCADE,
+    tradeup_id      INTEGER NOT NULL,
     asset_id        TEXT NOT NULL,
     paint_index     REAL NOT NULL,
     weapon_id       INTEGER NOT NULL,
@@ -91,11 +84,9 @@ CREATE TABLE IF NOT EXISTS tradeup_input_items (
     rarity_name     TEXT NOT NULL,
     UNIQUE(tradeup_id, asset_id)
 );
-
--- Trade-up outcome items
 CREATE TABLE IF NOT EXISTS tradeup_outcome_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    tradeup_id      INTEGER NOT NULL REFERENCES tradeup_history(id) ON DELETE CASCADE,
+    tradeup_id      INTEGER NOT NULL,
     asset_id        TEXT NOT NULL,
     item_name       TEXT NOT NULL,
     paint_index     REAL,
@@ -105,8 +96,6 @@ CREATE TABLE IF NOT EXISTS tradeup_outcome_items (
     collection_name TEXT,
     UNIQUE(tradeup_id, asset_id)
 );
-
--- Recipes
 CREATE TABLE IF NOT EXISTS recipes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     name            TEXT NOT NULL,
@@ -118,14 +107,12 @@ CREATE TABLE IF NOT EXISTS recipes (
     avg_wear_norm   REAL,
     outcome_summary TEXT,
     tags            TEXT,
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now'))
+    created_at      TEXT,
+    updated_at      TEXT
 );
-
--- Recipe items
 CREATE TABLE IF NOT EXISTS recipe_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    recipe_id       INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    recipe_id       INTEGER NOT NULL,
     paint_index     REAL NOT NULL,
     weapon_id       INTEGER NOT NULL,
     wear_float      REAL NOT NULL,
@@ -134,8 +121,6 @@ CREATE TABLE IF NOT EXISTS recipe_items (
     souvenir        INTEGER DEFAULT 0,
     position        INTEGER NOT NULL
 );
-
--- Price cache
 CREATE TABLE IF NOT EXISTS price_cache (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     item_hash_name  TEXT NOT NULL UNIQUE,
@@ -147,32 +132,24 @@ CREATE TABLE IF NOT EXISTS price_cache (
     currency        TEXT DEFAULT 'CNY',
     last_fetched_at TEXT,
     data_json       TEXT,
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now'))
+    created_at      TEXT,
+    updated_at      TEXT
 );
-
--- Price history
 CREATE TABLE IF NOT EXISTS price_history (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     item_hash_name  TEXT NOT NULL,
     source          TEXT NOT NULL,
     price           REAL NOT NULL,
     volume          INTEGER,
-    recorded_at     TEXT DEFAULT (datetime('now'))
+    recorded_at     TEXT
 );
-
--- App settings
 CREATE TABLE IF NOT EXISTS app_settings (
     key             TEXT PRIMARY KEY,
     value           TEXT NOT NULL,
-    updated_at      TEXT DEFAULT (datetime('now'))
+    updated_at      TEXT
 );
 `;
 
-/**
- * Execute a multi-statement SQL block.
- * sql.js db.exec() handles semicolon-separated statements correctly.
- */
 function execSQL(sql: string): void {
   const db = getDatabase();
   const statements = sql
@@ -184,51 +161,45 @@ function execSQL(sql: string): void {
     try {
       db.run(stmt + ';');
     } catch (err: any) {
-      // Ignore "duplicate column" errors from ALTER TABLE
+      // Ignore already-exists errors
       if (err.message?.includes('duplicate column')) continue;
-      // Ignore IF NOT EXISTS already-existing-object errors
       if (err.message?.includes('already exists')) continue;
-      console.warn(`[DB] SQL statement warning: ${err.message}`);
+      console.warn(`[DB] Statement warning: ${err.message}`);
     }
   }
 }
 
-/**
- * Run all pending migrations.
- * Now with inline SQL — no filesystem dependency.
- */
 export function runMigrations(): void {
   const db = getDatabase();
 
-  // Ensure tracking table
+  // _migrations tracking table (no DEFAULT datetime — sql.js limitation)
   db.run(`CREATE TABLE IF NOT EXISTS _migrations (
     name TEXT PRIMARY KEY,
-    applied_at TEXT DEFAULT (datetime('now'))
+    applied_at TEXT
   )`);
 
-  // ── Migration 001 ──
+  // Check if migration already applied
   const applied001 = dbGet<{ name: string }>(
     'SELECT name FROM _migrations WHERE name = ?', ['001_initial']
   );
 
   if (!applied001) {
-    console.log('[DB] Applying migration 001_initial (inline)');
+    console.log('[DB] Applying migration 001_initial');
     execSQL(MIGRATION_001);
-    dbRun('INSERT INTO _migrations (name) VALUES (?)', ['001_initial']);
+    dbRun("INSERT INTO _migrations (name, applied_at) VALUES ('001_initial', datetime('now'))");
     saveDatabase();
     console.log('[DB] Migration 001 applied');
   } else {
-    // Verify core tables actually exist (corruption check)
+    // Corruption check
     const check = dbGet<{ cnt: number }>(
       "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name='accounts'"
     );
     if (!check || check.cnt === 0) {
-      console.warn('[DB] CORRUPTION: migration marked applied but accounts table missing — reapplying');
+      console.warn('[DB] Corruption detected — reapplying migration');
       db.run("DELETE FROM _migrations WHERE name = '001_initial'");
       execSQL(MIGRATION_001);
-      dbRun('INSERT INTO _migrations (name) VALUES (?)', ['001_initial']);
+      dbRun("INSERT INTO _migrations (name, applied_at) VALUES ('001_initial', datetime('now'))");
       saveDatabase();
-      console.log('[DB] Migration 001 reapplied');
     }
   }
 
