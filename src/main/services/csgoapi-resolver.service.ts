@@ -93,11 +93,14 @@ class CsgoapiResolver {
         }
 
         // Index other categories by type + def_index
+        // CRITICAL: all.json def_index is STRING, GC item def_index is NUMBER
+        // Normalize to number for Map key matching
         if (entry.def_index !== undefined) {
+          const defIdx = Number(entry.def_index);
           if (!this.byTypeAndDef.has(type)) {
             this.byTypeAndDef.set(type, new Map());
           }
-          this.byTypeAndDef.get(type)!.set(entry.def_index, entry);
+          this.byTypeAndDef.get(type)!.set(defIdx, entry);
           otherCount++;
         }
       }
@@ -148,11 +151,25 @@ class CsgoapiResolver {
     let collectionName = '';
     let imageUrl = '';
 
+    // Case 1: Sticker/crate container (has stickers)
     const stickers = rawItem.stickers;
-
-    // Case 1: Weapon skin (paint_index ≠ 0) — MUST come before sticker check!
-    // Weapons can have applied stickers but their identity is the skin, not the sticker.
-    if (paintIndex !== 0 && paintIndex != null) {
+    if (stickers && stickers.length > 0 && stickers[0].sticker_id) {
+      const stickerId = String(stickers[0].sticker_id);
+      const entry = this.stickerById.get(stickerId);
+      if (entry) {
+        resolvedType = 'sticker';
+        resolvedName = entry.name || `Sticker ${stickerId}`;
+        resolvedNameZh = entry.name || resolvedName;
+        rarityName = entry.rarity?.name || '';
+        rarityNameZh = rarityName;
+        rarityColor = entry.rarity?.color || '#b0c4d8';
+        imageUrl = entry.image || '';
+        collectionName = entry.collections?.[0]?.name || '';
+        marketHashName = entry.market_hash_name || '';
+      }
+    }
+    // Case 2: Weapon skin (paint_index ≠ 0)
+    else if (paintIndex !== 0 && paintIndex != null) {
       // Try with weapon_id from def_index, then with paint_index alone
       let entry: any = null;
 
@@ -177,22 +194,6 @@ class CsgoapiResolver {
         collectionName = entry.collections?.[0]?.name || '';
         marketHashName = entry.market_hash_name || '';
         imageUrl = entry.image || '';
-      }
-    }
-    // Case 2: Sticker/graffiti container (stickers but NO paint_index)
-    else if (stickers && stickers.length > 0 && stickers[0].sticker_id) {
-      const stickerId = String(stickers[0].sticker_id);
-      const entry = this.stickerById.get(stickerId);
-      if (entry) {
-        resolvedType = 'sticker';
-        resolvedName = entry.name || `Sticker ${stickerId}`;
-        resolvedNameZh = entry.name || resolvedName;
-        rarityName = entry.rarity?.name || '';
-        rarityNameZh = rarityName;
-        rarityColor = entry.rarity?.color || '#b0c4d8';
-        imageUrl = entry.image || '';
-        collectionName = entry.collections?.[0]?.name || '';
-        marketHashName = entry.market_hash_name || '';
       }
     }
     // Case 3: Base weapon (known weapon def_index, no paint)
