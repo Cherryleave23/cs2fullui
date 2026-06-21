@@ -61,16 +61,9 @@ class CsgoapiResolver {
         const entry = item as any;
         const type = key.split('-')[0];
 
-        // Skin: key = paint_index|weapon_id
-        // Multiple variants exist (wear/ST/SV). Prefer the base (non-ST, non-SV) entry.
+        // Skin: key = paint_index|weapon_id  (paint_index is STRING in all.json)
         if (type === 'skin' && entry.paint_index && entry.weapon?.weapon_id) {
-          const skinKey = `${entry.paint_index}|${entry.weapon.weapon_id}`;
-          const existing = this.skinByKey.get(skinKey);
-          // Prefer non-Souvenir, non-StatTrak base variant
-          const isSpecial = entry.souvenir || entry.stattrak;
-          if (!existing || (!isSpecial && (existing.souvenir || existing.stattrak))) {
-            this.skinByKey.set(skinKey, entry);
-          }
+          this.skinByKey.set(`${entry.paint_index}|${entry.weapon.weapon_id}`, entry);
           KNOWN_WEAPON_IDS.add(entry.weapon.weapon_id);
           skinCount++;
         }
@@ -111,9 +104,9 @@ class CsgoapiResolver {
     const quality = rawItem.quality ?? 4;
     const origin = rawItem.origin ?? 0;
     const stickers = rawItem.stickers;
-    // ST/Souvenir: use all.json entry flags (more reliable than quality in CS2)
-    let isStatTrak = false;
-    let isSouvenir = false;
+    // Per manual: quality 4=Normal, 9=StatTrak, 12=Souvenir
+    const isStatTrak = quality === 9;
+    const isSouvenir = quality === 12;
 
     // ── Three-way dispatch (EXACTLY per manual) ──
     let rType = 'unknown';
@@ -167,9 +160,6 @@ class CsgoapiResolver {
       rImg = entry.image || '';
       rColl = entry.collections?.[0]?.name || '';
       rHash = entry.market_hash_name || '';
-      // ST/Souvenir from all.json entry (CS2's quality field is unreliable)
-      isStatTrak = !!(entry.stattrak);
-      isSouvenir = !!(entry.souvenir);
       if (rType === 'skin') {
         rMinF = entry.min_float ?? 0;
         rMaxF = entry.max_float ?? 1;

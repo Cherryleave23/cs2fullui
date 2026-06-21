@@ -97,18 +97,19 @@ function bindEvents(c: any, g: any, accountName: string): void {
             const raw = loose[i];
             console.log(`[SteamDirect] Raw[${i}]: id=${raw.id} def=${raw.def_index} paint=${raw.paint_index} rarity=${raw.rarity} quality=${raw.quality} stickers=${raw.stickers?.length || 0}`);
           }
-          // Diagnostic: inspect specific asset + quality/origin distribution
-          const targetItem = loose.find((i: any) => String(i.id) === '49372856902');
-          if (targetItem) {
-            console.log(`[SteamDirect] Item #49372856902: def=${targetItem.def_index} paint=${targetItem.paint_index} quality=${targetItem.quality} origin=${targetItem.origin} rarity=${targetItem.rarity} stickers=${targetItem.stickers?.length || 0}`);
-          }
-          // Quality + origin pairs for quality=12 items
-          const q12 = loose.filter((i: any) => i.quality === 12);
-          if (q12.length > 0) {
-            const pairs = new Set(q12.map((i: any) => `${i.quality}/${i.origin}`));
-            console.log(`[SteamDirect] quality=12 items: ${q12.length} total, origins: ${[...pairs].join(', ')}`);
-            const samples = q12.slice(0, 5);
-            for (const s of samples) console.log(`[SteamDirect]  - id=${s.id} def=${s.def_index} origin=${s.origin} paint=${s.paint_index} rarity=${s.rarity}`);
+          // One-time sample: quality distribution
+          if (!(globalThis as any)._qualityLogged) {
+            (globalThis as any)._qualityLogged = true;
+            const qCounts: Record<number, number> = {};
+            for (const raw of loose) {
+              const q = raw.quality ?? 0;
+              qCounts[q] = (qCounts[q] || 0) + 1;
+            }
+            console.log(`[SteamDirect] Quality distribution: ${JSON.stringify(qCounts)}`);
+            const stSample = loose.filter((i: any) => i.quality === 9).slice(0, 3);
+            const svSample = loose.filter((i: any) => i.quality === 12).slice(0, 3);
+            for (const s of stSample) console.log(`[SteamDirect] ST sample: id=${s.id} def=${s.def_index} paint=${s.paint_index} quality=${s.quality}`);
+            for (const s of svSample) console.log(`[SteamDirect] SV sample: id=${s.id} def=${s.def_index} paint=${s.paint_index} quality=${s.quality}`);
           }
           const resolved = csgoResolver.resolveAll(loose);
           // Sample: log first 3 resolved items
