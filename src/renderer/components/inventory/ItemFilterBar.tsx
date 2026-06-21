@@ -71,6 +71,15 @@ const ItemFilterBar: React.FC = () => {
         />
       </Space>
 
+      <Space>
+        🔫 只看武器{' '}
+        <Switch
+          size="small"
+          checked={filter.weaponOnly || false}
+          onChange={(v) => setFilter({ weaponOnly: v || undefined })}
+        />
+      </Space>
+
       <Button icon={<ClearOutlined />} size="small" onClick={clearFilters}>
         清除筛选
       </Button>

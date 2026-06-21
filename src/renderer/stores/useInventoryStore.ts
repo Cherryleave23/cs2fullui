@@ -8,6 +8,7 @@ export interface ItemFilter {
   collectionName?: string;
   isStatTrak?: boolean;
   isSouvenir?: boolean;
+  weaponOnly?: boolean;
   search?: string;
 }
 
@@ -67,6 +68,9 @@ function applyFilterAndSort(
   }
   if (filter.isSouvenir) {
     result = result.filter(i => i.isSouvenir);
+  }
+  if (filter.weaponOnly) {
+    result = result.filter(i => i.resolvedType === 'skin');
   }
   if (filter.search) {
     const q = filter.search.toLowerCase();
