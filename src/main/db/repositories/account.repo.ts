@@ -30,6 +30,10 @@ export const AccountRepo = {
     return dbGet<AccountRow>('SELECT * FROM accounts WHERE steam_id = ?', [steamId]);
   },
 
+  getByAccountName(accountName: string): AccountRow | null {
+    return dbGet<AccountRow>('SELECT * FROM accounts WHERE account_name = ?', [accountName]);
+  },
+
   upsert(params: {
     steamId: string;
     accountName: string;

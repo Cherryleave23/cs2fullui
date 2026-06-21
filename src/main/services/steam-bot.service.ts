@@ -34,25 +34,34 @@ export class SteamBotService extends EventEmitter {
   private setupEvents(): void {
     // ── Logged in ──
     this.client.on('loggedOn', (_body: unknown) => {
-      console.log(`[SteamBot] Logged in: ${this.status.accountName}`);
-      this.updateStatus({ state: 'logged_in' });
+      // Extract steamId from the client after successful login
+      const steamId = this.client.steamID?.getSteamID64?.() || null;
+      console.log(`[SteamBot] Logged in as ${steamId} (${this.status.accountName})`);
+      this.updateStatus({ state: 'logged_in', steamId });
       this.client.setPersona(SteamUser.EPersonaState.Online);
       this.client.gamesPlayed([730]);
+
+      // Resolve login promise
+      this.loginResolve?.({ success: true, steamId });
+      this.loginResolve = null;
     });
 
     // ── Refresh token — persist immediately ──
     this.client.on('refreshToken', (token: string) => {
-      console.log('[SteamBot] Refresh token received, saving...');
-      if (this.status.steamId) {
-        AccountRepo.updateToken(this.status.steamId, token);
+      const steamId = this.client.steamID?.getSteamID64?.();
+      console.log(`[SteamBot] Refresh token received for ${steamId}, saving...`);
+      if (steamId) {
+        AccountRepo.updateToken(steamId, token);
+        this.updateStatus({ steamId });
       }
     });
 
     // ── Machine auth token (email Steam Guard bypass) ──
     this.client.on('machineAuthToken', (token: string) => {
-      console.log('[SteamBot] Machine token received, saving...');
-      if (this.status.steamId) {
-        AccountRepo.updateMachineToken(this.status.steamId, token);
+      const steamId = this.client.steamID?.getSteamID64?.();
+      console.log(`[SteamBot] Machine token received for ${steamId}, saving...`);
+      if (steamId) {
+        AccountRepo.updateMachineToken(steamId, token);
       }
     });
 
@@ -67,12 +76,13 @@ export class SteamBotService extends EventEmitter {
 
     // ── Disconnected (non-fatal) ──
     this.client.on('disconnected', (eresult: number, msg: string) => {
+      const steamId = this.client.steamID?.getSteamID64?.();
       console.log(`[SteamBot] Disconnected: ${msg} (${eresult})`);
 
       // Token expired/invalid — clear and fallback to password
-      if (eresult === 84 && this.status.steamId) {
+      if ((eresult === 84 || eresult === 63) && steamId) {
         console.log('[SteamBot] Token expired, clearing and retrying with password...');
-        AccountRepo.updateToken(this.status.steamId, '');
+        AccountRepo.updateToken(steamId, '');
         if (this.pendingPassword && this.pendingAccountName) {
           this.doPasswordLogin(this.pendingAccountName, this.pendingPassword);
           return;
@@ -92,9 +102,9 @@ export class SteamBotService extends EventEmitter {
     // ── Fatal error ──
     this.client.on('error', (err: any) => {
       console.error('[SteamBot] Fatal error:', err.message || err);
-      const isTokenExpired = err.eresult === 84 || err.message?.includes('InvalidToken');
-      if (isTokenExpired && this.status.steamId) {
-        AccountRepo.updateToken(this.status.steamId, '');
+      const steamId = this.client.steamID?.getSteamID64?.();
+      if ((err.eresult === 84 || err.eresult === 63 || err.message?.includes('InvalidToken')) && steamId) {
+        AccountRepo.updateToken(steamId, '');
       }
       this.updateStatus({ state: 'error', errorMessage: err.message });
       this.loginResolve?.({ success: false, error: err.message });
@@ -199,20 +209,25 @@ export class SteamBotService extends EventEmitter {
   private updateStatus(partial: Partial<SteamBotStatus>): void {
     this.status = { ...this.status, ...partial };
 
-    // On successful login, update/sync account in DB
-    if (partial.state === 'logged_in' && this.status.steamId && this.pendingAccountName) {
-      const saved = AccountRepo.getBySteamId(this.status.steamId);
+    // On successful login, sync account to DB
+    const steamId = this.status.steamId || this.client.steamID?.getSteamID64?.();
+    if (steamId && this.pendingAccountName) {
+      const existing = AccountRepo.getBySteamId(steamId)
+        || AccountRepo.getByAccountName(this.pendingAccountName);
+
       AccountRepo.upsert({
-        steamId: this.status.steamId,
+        steamId,
         accountName: this.pendingAccountName,
-        nickname: saved?.nickname || this.pendingAccountName,
-        proxyUrl: saved?.proxy_url || undefined,
+        nickname: existing?.nickname || this.pendingAccountName,
+        proxyUrl: existing?.proxy_url || undefined,
       });
 
-      // Set as active
-      AccountRepo.setActive(this.status.steamId);
+      AccountRepo.setActive(steamId);
 
-      this.status.nickname = saved?.nickname || this.pendingAccountName;
+      if (!this.status.steamId) {
+        this.status.steamId = steamId;
+      }
+      this.status.nickname = existing?.nickname || this.pendingAccountName;
     }
 
     this.emit('statusChanged', this.status);

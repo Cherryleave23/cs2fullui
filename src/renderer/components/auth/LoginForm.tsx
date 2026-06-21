@@ -80,33 +80,15 @@ const LoginForm: React.FC = () => {
     setLoading(false);
   };
 
-  // ── Quick login with saved account ──
-  const handleQuickLogin = async (account: AccountInfo) => {
-    form.setFieldsValue({ accountName: account.accountName });
+  // ── Select saved account (fill form, don't login yet) ──
+  const handleSelectAccount = (account: AccountInfo) => {
+    form.setFieldsValue({
+      accountName: account.accountName,
+      nickname: account.nickname,
+    });
     setAccountName(account.accountName);
     setNickname(account.nickname);
-    setStatus('connecting');
     setError(null);
-
-    try {
-      // Just attempt to connect — token will be used automatically
-      const result: any = await window.electronAPI.auth.login({
-        accountName: account.accountName,
-        password: '', // Empty password → will trigger "need password" if no token
-        proxyUrl: undefined,
-        nickname: account.nickname,
-      });
-
-      if (result.success) {
-        setSteamId(result.steamId);
-        setStatus('logged_in');
-      } else if (!result.alreadyLoggedIn) {
-        // Token expired, need password
-        setError('Token 已失效，请手动输入密码');
-      }
-    } catch (err: any) {
-      setError(err.message);
-    }
   };
 
   const handleSubmitSteamGuard = async () => {
@@ -180,7 +162,7 @@ const LoginForm: React.FC = () => {
                 key={acc.steamId}
                 size="small"
                 type={acc.isActive ? 'primary' : 'default'}
-                onClick={() => handleQuickLogin(acc)}
+                onClick={() => handleSelectAccount(acc)}
               >
                 {acc.nickname || acc.accountName}
                 {acc.isActive && ' ✓'}
