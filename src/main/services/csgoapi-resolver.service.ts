@@ -104,9 +104,9 @@ class CsgoapiResolver {
     const quality = rawItem.quality ?? 4;
     const origin = rawItem.origin ?? 0;
     const stickers = rawItem.stickers;
-    // Per manual: quality 4=Normal, 9=StatTrak, 12=Souvenir
-    const isStatTrak = quality === 9;
-    const isSouvenir = quality === 12;
+    // ST/Souvenir: use all.json entry flags (more reliable than quality in CS2)
+    let isStatTrak = false;
+    let isSouvenir = false;
 
     // ── Three-way dispatch (EXACTLY per manual) ──
     let rType = 'unknown';
@@ -160,6 +160,9 @@ class CsgoapiResolver {
       rImg = entry.image || '';
       rColl = entry.collections?.[0]?.name || '';
       rHash = entry.market_hash_name || '';
+      // ST/Souvenir from all.json entry (CS2's quality field is unreliable)
+      isStatTrak = !!(entry.stattrak);
+      isSouvenir = !!(entry.souvenir);
       if (rType === 'skin') {
         rMinF = entry.min_float ?? 0;
         rMaxF = entry.max_float ?? 1;
