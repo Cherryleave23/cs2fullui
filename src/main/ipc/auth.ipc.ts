@@ -11,6 +11,7 @@ export function registerAuthIpc(): void {
     password: string;
     proxyUrl?: string;
     nickname?: string;
+    webCompatibilityMode?: boolean;
   }) => {
     try {
       // Try to find existing account by accountName
@@ -28,8 +29,8 @@ export function registerAuthIpc(): void {
         };
       }
 
-      // Hook Steam Guard
-      bot.on('steamGuard', (_domain: string | null, lastWrong: boolean) => {
+      // Hook Steam Guard — use once() to avoid listener leak on repeated logins
+      const guardHandler = (_domain: string | null, lastWrong: boolean) => {
         const mainWindow = BrowserWindow.getAllWindows()[0];
         if (mainWindow) {
           mainWindow.webContents.send(IPC_CHANNELS.PUSH_STEAM_STATUS, {
@@ -38,30 +39,8 @@ export function registerAuthIpc(): void {
             accountName: params.accountName,
           });
         }
-      });
-
-      // Hook inventory sync on GC ready
-      const unbind = bindInventorySync(bot, existing?.id || 0, {
-        onSyncComplete: (count) => {
-          const mainWindow = BrowserWindow.getAllWindows()[0];
-          mainWindow?.webContents.send(IPC_CHANNELS.PUSH_STEAM_STATUS, {
-            inventorySynced: true,
-            count,
-            accountName: params.accountName,
-          });
-        },
-        onItemUpdate: (_item) => {
-          // Push single item update to renderer
-          BrowserWindow.getAllWindows()[0]?.webContents.send(
-            IPC_CHANNELS.PUSH_ITEM_CHANGED, _item
-          );
-        },
-        onItemRemove: (assetId) => {
-          BrowserWindow.getAllWindows()[0]?.webContents.send(
-            IPC_CHANNELS.PUSH_ITEM_REMOVED, assetId
-          );
-        },
-      });
+      };
+      bot.on('steamGuard', guardHandler);
 
       const result = await bot.login({
         accountName: params.accountName,
@@ -70,12 +49,31 @@ export function registerAuthIpc(): void {
         nickname: params.nickname || existing?.nickname || params.accountName,
       });
 
+      // Cleanup guard listener after login completes (success or fail)
+      bot.removeListener('steamGuard', guardHandler);
+
       if (result.success && result.steamId) {
         // Update nickname if provided
         if (params.nickname) {
           AccountRepo.updateNickname(result.steamId, params.nickname);
         }
         AccountRepo.setActive(result.steamId);
+
+        // Bind inventory sync on first GC connect
+        bindInventorySync(bot, existing?.id || 0, {
+          onSyncComplete: (count) => {
+            const mainWindow = BrowserWindow.getAllWindows()[0];
+            mainWindow?.webContents.send(IPC_CHANNELS.PUSH_STEAM_STATUS, {
+              inventorySynced: true, count, accountName: params.accountName,
+            });
+          },
+          onItemUpdate: (_item) => {
+            BrowserWindow.getAllWindows()[0]?.webContents.send(IPC_CHANNELS.PUSH_ITEM_CHANGED, _item);
+          },
+          onItemRemove: (assetId) => {
+            BrowserWindow.getAllWindows()[0]?.webContents.send(IPC_CHANNELS.PUSH_ITEM_REMOVED, assetId);
+          },
+        });
       }
 
       return result;

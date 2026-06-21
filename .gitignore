@@ -39,3 +39,4 @@ coverage/
 
 # Electron binary
 *.zip
+test-steam-login.ts

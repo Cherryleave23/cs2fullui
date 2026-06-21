@@ -69,14 +69,20 @@ export class SteamBotService extends EventEmitter {
     this.client.on('steamGuard', (domain: string | null, callback: (code: string) => void, lastWrong: boolean) => {
       this.steamGuardCallback = callback;
       if (lastWrong) {
-        console.warn('[SteamBot] Last Steam Guard code was wrong — wait 30s before retry');
+        console.warn('[SteamBot] Last Steam Guard code was wrong — enforcing 30s cooldown per steam-user docs');
+        // Critical: steam-user requires 30s wait on wrong TOTP to avoid IP ban
+        setTimeout(() => {
+          this.emit('steamGuard', domain, true);
+        }, 30000);
+        return;
       }
-      this.emit('steamGuard', domain, lastWrong);
+      this.emit('steamGuard', domain, false);
     });
 
     // ── Disconnected (non-fatal) ──
     this.client.on('disconnected', (eresult: number, msg: string) => {
-      const steamId = this.client.steamID?.getSteamID64?.();
+      // Fallback to stored steamId — client.steamID may already be null after disconnect
+      const steamId = this.client.steamID?.getSteamID64?.() || this.status.steamId;
       console.log(`[SteamBot] Disconnected: ${msg} (${eresult})`);
 
       // Token expired/invalid — clear and fallback to password
@@ -102,7 +108,7 @@ export class SteamBotService extends EventEmitter {
     // ── Fatal error ──
     this.client.on('error', (err: any) => {
       console.error('[SteamBot] Fatal error:', err.message || err);
-      const steamId = this.client.steamID?.getSteamID64?.();
+      const steamId = this.client.steamID?.getSteamID64?.() || this.status.steamId;
       if ((err.eresult === 84 || err.eresult === 63 || err.message?.includes('InvalidToken')) && steamId) {
         AccountRepo.updateToken(steamId, '');
       }
