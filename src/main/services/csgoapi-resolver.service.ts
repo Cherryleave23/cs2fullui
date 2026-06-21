@@ -1,12 +1,13 @@
 /**
- * CS:GO Item Resolver — maps raw CSOEconItem data to human-readable ResolvedItem.
+ * CsgoapiResolver — exact match to tech reference "三路分派规则".
  *
- * Three-way dispatch (from cs2tradetool v2):
- *   1. stickers[0] exists → sticker/graffiti container, resolve by sticker_id
- *   2. paint_index ≠ 0   → weapon skin, resolve by paint_index|weapon_id
- *   3. Otherwise          → crate/agent/keychain/etc., resolve by type precision scoring
+ * Dispatch order (per manual):
+ *   1. paint_index != null && paint_index !== 0 → weapon skin
+ *   2. stickers[0] exists                        → sticker/graffiti container
+ *   3. isKnownWeapon(def_index)                  → base weapon
+ *   4. precision scoring by category             → crate/agent/keychain/etc.
  *
- * Data source: data/csgoapi/all.json (ByMykel/CSGO-API, 71MB, 45,756 entries)
+ * Key detail: paint_index/def_index are STRINGS in all.json, NUMBERS from GC.
  */
 import * as fs from 'fs';
 import { join } from 'path';
@@ -14,57 +15,42 @@ import { app } from 'electron';
 import { getWearCategory } from '../db/seed';
 import type { ResolvedItem } from '../../shared/types/item';
 
-// Category precision scores (10,000 / entry_count)
+// Category precision: 10000 / entry_count (per manual)
 const CATEGORY_PRECISION: Record<string, number> = {
   tool: 2500, key: 256, agent: 159, keychain: 128, patch: 112,
   music_kit: 53, crate: 20.9, collectible: 15.9, graffiti: 4.7,
   sticker_slab: 0.96, sticker: 0.96,
 };
 
-// Known weapon def_index values (populated from all.json)
 const KNOWN_WEAPON_IDS = new Set<number>();
 
 class CsgoapiResolver {
-  // skin lookup: "{paint_index}|{weapon_id}" → SkinEntry
-  private skinByKey = new Map<string, any>();
-  // sticker lookup: "{sticker_id}" → StickerEntry
-  private stickerById = new Map<string, any>();
-  // category → def_index → entry (non-skin items)
-  private byTypeAndDef = new Map<string, Map<number, any>>();
-  // All entries keyed by CSGO-API ID
-  private allEntries = new Map<string, any>();
-
+  private skinByKey = new Map<string, any>();      // "paint_index|weapon_id" → entry
+  private stickerById = new Map<string, any>();     // "sticker_id" → entry
+  private byTypeAndDef = new Map<string, Map<number, any>>(); // type → def_index(number) → entry
   private loaded = false;
 
-  /** Load all.json from data directory. Called once at startup. */
   load(): boolean {
     if (this.loaded) return true;
 
-    const dataDir = join(app.getPath('userData'), '..', '..', 'data');
-    // Try project-relative path first, then userData
-    const basePaths = [process.cwd(), app.getAppPath()];
-    const paths: string[] = [];
-    for (const base of basePaths) {
-      paths.push(join(base, 'data', 'all.json'));
-      paths.push(join(base, 'data', 'csgoapi', 'all.json'));
-    }
+    const paths = [
+      join(process.cwd(), 'data', 'all.json'),
+      join(process.cwd(), 'data', 'csgoapi', 'all.json'),
+      join(app.getAppPath(), 'data', 'all.json'),
+    ];
 
     let allPath = '';
     for (const p of paths) {
       if (fs.existsSync(p)) { allPath = p; break; }
     }
-
     if (!allPath) {
       console.warn('[CsgoResolver] all.json not found. Searched:');
-      for (const p of paths) {
-        console.warn(`  ${p} → ${require('fs').existsSync(p) ? 'EXISTS' : 'MISSING'}`);
-      }
+      for (const p of paths) console.warn(`  ${p}`);
       return false;
     }
 
     console.log(`[CsgoResolver] Loading ${allPath}...`);
     const start = Date.now();
-
     try {
       const raw = fs.readFileSync(allPath, 'utf-8');
       const all = JSON.parse(raw);
@@ -73,48 +59,41 @@ class CsgoapiResolver {
       for (const [key, item] of Object.entries(all)) {
         if (!item || typeof item !== 'object') continue;
         const entry = item as any;
-        this.allEntries.set(key, entry);
-
         const type = key.split('-')[0];
 
-        // Index skins: key = "paint_index|weapon_id"
+        // Skin: key = paint_index|weapon_id  (paint_index is STRING in all.json)
         if (type === 'skin' && entry.paint_index && entry.weapon?.weapon_id) {
-          const skinKey = `${entry.paint_index}|${entry.weapon.weapon_id}`;
-          this.skinByKey.set(skinKey, entry);
+          this.skinByKey.set(`${entry.paint_index}|${entry.weapon.weapon_id}`, entry);
           KNOWN_WEAPON_IDS.add(entry.weapon.weapon_id);
           skinCount++;
         }
 
-        // Index stickers: key = sticker_id
+        // Sticker: key = sticker_id (from key "sticker-{id}")
         if (type === 'sticker') {
-          const stickerId = key.replace('sticker-', '');
-          this.stickerById.set(stickerId, entry);
+          this.stickerById.set(key.replace('sticker-', ''), entry);
           stickerCount++;
         }
 
-        // Index other categories by type + def_index
-        // CRITICAL: all.json def_index is STRING, GC item def_index is NUMBER
-        // Normalize to number for Map key matching
+        // All other types: type → def_index (NORMALIZED to number)
         if (entry.def_index !== undefined) {
           const defIdx = Number(entry.def_index);
-          if (!this.byTypeAndDef.has(type)) {
-            this.byTypeAndDef.set(type, new Map());
-          }
-          this.byTypeAndDef.get(type)!.set(defIdx, entry);
+          let map = this.byTypeAndDef.get(type);
+          if (!map) { map = new Map(); this.byTypeAndDef.set(type, map); }
+          map.set(defIdx, entry);
           otherCount++;
         }
       }
 
       this.loaded = true;
-      console.log(`[CsgoResolver] Indexed ${skinCount} skins, ${stickerCount} stickers, ${otherCount} others (${Date.now() - start}ms)`);
+      console.log(`[CsgoResolver] ${skinCount} skins, ${stickerCount} stickers, ${otherCount} others (${Date.now() - start}ms)`);
       return true;
     } catch (err) {
-      console.error('[CsgoResolver] Failed to load all.json:', err);
+      console.error('[CsgoResolver] Load error:', err);
       return false;
     }
   }
 
-  /** Get a raw CSOEconItem and return a ResolvedItem */
+  /** Resolve a single CSOEconItem → ResolvedItem */
   resolveOne(rawItem: any): ResolvedItem {
     const assetId = String(rawItem.id || '');
     const defIndex = rawItem.def_index ?? 0;
@@ -124,132 +103,81 @@ class CsgoapiResolver {
     const rarity = rawItem.rarity ?? 0;
     const quality = rawItem.quality ?? 4;
     const origin = rawItem.origin ?? 0;
-    const customName = rawItem.custom_name || '';
-    const killEaterValue = rawItem.kill_eater_value ?? 0;
-    const killEaterScoreType = rawItem.kill_eater_score_type ?? 0;
-    const casketId = rawItem.casket_id ? String(rawItem.casket_id) : '';
-    const tradableAfter = rawItem.tradable_after instanceof Date
-      ? rawItem.tradable_after.toISOString() : '';
-    const position = (rawItem as any).position ?? 0;
-    const inUse = rawItem.in_use ?? false;
+    const stickers = rawItem.stickers;
     const isStatTrak = quality === 9;
     const isSouvenir = quality === 12;
 
-    // ── Dispatch ──
-    let resolvedType = 'unknown';
-    let resolvedName = `Item ${defIndex}`;
-    let resolvedNameZh = `物品 ${defIndex}`;
-    let rarityName = '';
-    let rarityNameZh = '';
-    let rarityColor = '#b0c4d8';
-    let wearCategory = '';
-    let wearCategoryZh = '';
-    let minFloat = 0;
-    let maxFloat = 1;
-    let marketHashName = '';
-    let weaponType = '';
-    let collectionName = '';
-    let imageUrl = '';
+    // ── Three-way dispatch (EXACTLY per manual) ──
+    let rType = 'unknown';
+    let rName = `Item ${defIndex}`;
+    let rNameZh = `物品 ${defIndex}`;
+    let rRarity = ''; let rRarityZh = ''; let rColor = '#b0c4d8';
+    let rMinF = 0.0; let rMaxF = 1.0;
+    let rWep = ''; let rColl = ''; let rHash = ''; let rImg = '';
+    let entry: any = null;
 
-    // Case 1: Sticker/crate container (has stickers)
-    const stickers = rawItem.stickers;
-    if (stickers && stickers.length > 0 && stickers[0].sticker_id) {
-      const stickerId = String(stickers[0].sticker_id);
-      const entry = this.stickerById.get(stickerId);
-      if (entry) {
-        resolvedType = 'sticker';
-        resolvedName = entry.name || `Sticker ${stickerId}`;
-        resolvedNameZh = entry.name || resolvedName;
-        rarityName = entry.rarity?.name || '';
-        rarityNameZh = rarityName;
-        rarityColor = entry.rarity?.color || '#b0c4d8';
-        imageUrl = entry.image || '';
-        collectionName = entry.collections?.[0]?.name || '';
-        marketHashName = entry.market_hash_name || '';
-      }
-    }
-    // Case 2: Weapon skin (paint_index ≠ 0)
-    else if (paintIndex !== 0 && paintIndex != null) {
-      // Try with weapon_id from def_index, then with paint_index alone
-      let entry: any = null;
-
-      // Try exact match: paint_index|def_index
+    // 1. paint_index != null && paint_index !== 0 → weapon skin
+    if (paintIndex && paintIndex !== 0) {
       entry = this.skinByKey.get(`${paintIndex}|${defIndex}`);
-
-      // Try float paint_index
       if (!entry && paintIndex !== Math.floor(paintIndex)) {
         entry = this.skinByKey.get(`${Math.floor(paintIndex)}|${defIndex}`);
       }
-
-      if (entry) {
-        resolvedType = 'skin';
-        resolvedName = entry.name || '';
-        resolvedNameZh = entry.name || '';
-        rarityName = entry.rarity?.name || '';
-        rarityNameZh = rarityName;
-        rarityColor = entry.rarity?.color || '#b0c4d8';
-        minFloat = entry.min_float ?? 0;
-        maxFloat = entry.max_float ?? 1;
-        weaponType = entry.category?.name || entry.weapon?.name || '';
-        collectionName = entry.collections?.[0]?.name || '';
-        marketHashName = entry.market_hash_name || '';
-        imageUrl = entry.image || '';
-      }
+      if (entry) rType = 'skin';
     }
-    // Case 3: Base weapon (known weapon def_index, no paint)
+    // 2. stickers[0] exists (and no paint_index) → sticker container
+    else if (stickers?.length > 0 && stickers[0]?.sticker_id) {
+      entry = this.stickerById.get(String(stickers[0].sticker_id));
+      if (entry) rType = 'sticker';
+    }
+    // 3. isKnownWeapon(def_index) → base weapon
     else if (KNOWN_WEAPON_IDS.has(defIndex)) {
-      resolvedType = 'weapon';
-      resolvedName = `Weapon ${defIndex}`;
-      resolvedNameZh = `原版武器 ${defIndex}`;
-      weaponType = `Weapon ${defIndex}`;
+      rType = 'weapon';
+      rName = `Weapon ${defIndex}`;
+      rNameZh = `原版武器 ${defIndex}`;
+      rWep = `Weapon ${defIndex}`;
     }
-    // Case 4: Other item (crate, agent, keychain, collectible, etc.)
+    // 4. Precision scoring by category
     else {
-      // Precision scoring by category
       let bestScore = -1;
-      let bestEntry: any = null;
-      let bestType = '';
-
       for (const [type, defMap] of this.byTypeAndDef) {
-        if (type === 'skin' || type === 'sticker') continue; // already handled
-        const entry = defMap.get(defIndex);
-        if (entry) {
+        if (type === 'skin' || type === 'sticker') continue;
+        const e = defMap.get(defIndex);
+        if (e) {
           const score = CATEGORY_PRECISION[type] || 0;
-          if (score > bestScore) {
-            bestScore = score;
-            bestEntry = entry;
-            bestType = type;
-          }
+          if (score > bestScore) { bestScore = score; entry = e; rType = type; }
         }
       }
+    }
 
-      if (bestEntry) {
-        resolvedType = bestType;
-        resolvedName = bestEntry.name || `${bestType} ${defIndex}`;
-        resolvedNameZh = bestEntry.name || resolvedName;
-        rarityName = bestEntry.rarity?.name || '';
-        rarityNameZh = rarityName;
-        rarityColor = bestEntry.rarity?.color || '#b0c4d8';
-        collectionName = bestEntry.collections?.[0]?.name || '';
-        marketHashName = bestEntry.market_hash_name || '';
-        imageUrl = bestEntry.image || '';
-      } else {
-        resolvedType = `def_${defIndex}`;
+    // Fill from resolved entry
+    if (entry) {
+      rName = entry.name || rName;
+      rNameZh = entry.name || rNameZh;
+      rRarity = entry.rarity?.name || '';
+      rRarityZh = rRarity;
+      rColor = entry.rarity?.color || '#b0c4d8';
+      rImg = entry.image || '';
+      rColl = entry.collections?.[0]?.name || '';
+      rHash = entry.market_hash_name || '';
+      if (rType === 'skin') {
+        rMinF = entry.min_float ?? 0;
+        rMaxF = entry.max_float ?? 1;
+        rWep = entry.category?.name || entry.weapon?.name || '';
       }
     }
 
-    // ── Wear category ──
-    if (resolvedType === 'skin' && minFloat !== maxFloat) {
-      const wear = getWearCategory(paintWear);
-      wearCategory = wear.name;
-      wearCategoryZh = wear.nameZh;
+    // Wear category (skins only)
+    let wearCat = '', wearCatZh = '';
+    if (rType === 'skin') {
+      const w = getWearCategory(paintWear);
+      wearCat = w.name; wearCatZh = w.nameZh;
     }
 
-    // ── Extra JSON (stickers, keychains) ──
-    let extraJson = '';
+    // Extra JSON (stickers on the item)
+    let extra = '';
     try {
-      if (stickers && stickers.length > 0) {
-        extraJson = JSON.stringify({ stickers: stickers.map((s: any) => ({
+      if (stickers?.length > 0) {
+        extra = JSON.stringify({ stickers: stickers.map((s: any) => ({
           slot: s.slot, sticker_id: s.sticker_id, wear: s.wear,
           scale: s.scale, rotation: s.rotation,
         })) });
@@ -257,20 +185,23 @@ class CsgoapiResolver {
     } catch (_) { /* ignore */ }
 
     return {
-      assetId, defIndex, resolvedType, resolvedName, resolvedNameZh,
-      paintIndex, paintSeed, paintWear, rarity, rarityName, rarityNameZh, rarityColor,
-      quality, origin, customName, wearCategory, wearCategoryZh,
-      minFloat, maxFloat, marketHashName, weaponType, collectionName, imageUrl,
-      killEaterValue, killEaterScoreType, casketId, tradableAfter, position,
-      inUse, isStatTrak, isSouvenir, extraJson,
+      assetId, defIndex, resolvedType: rType, resolvedName: rName, resolvedNameZh: rNameZh,
+      paintIndex, paintSeed, paintWear, rarity, rarityName: rRarity, rarityNameZh: rRarityZh,
+      rarityColor: rColor, quality, origin, customName: rawItem.custom_name || '',
+      wearCategory: wearCat, wearCategoryZh: wearCatZh, minFloat: rMinF, maxFloat: rMaxF,
+      marketHashName: rHash, weaponType: rWep, collectionName: rColl, imageUrl: rImg,
+      killEaterValue: rawItem.kill_eater_value ?? 0,
+      killEaterScoreType: rawItem.kill_eater_score_type ?? 0,
+      casketId: rawItem.casket_id ? String(rawItem.casket_id) : '',
+      tradableAfter: rawItem.tradable_after instanceof Date ? rawItem.tradable_after.toISOString() : '',
+      position: rawItem.position ?? 0, inUse: rawItem.in_use ?? false,
+      isStatTrak, isSouvenir, extraJson: extra,
     };
   }
 
-  /** Resolve all items in bulk */
   resolveAll(rawItems: any[]): ResolvedItem[] {
-    return rawItems.map(item => this.resolveOne(item));
+    return rawItems.map(i => this.resolveOne(i));
   }
 }
 
-// Singleton
 export const csgoResolver = new CsgoapiResolver();
