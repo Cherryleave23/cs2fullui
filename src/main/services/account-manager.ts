@@ -43,12 +43,12 @@ class AccountManager {
 
     // Disconnect old account from GC
     if (oldBot && oldBot !== newBot) {
-      try { oldBot.getClient().gamesPlayed([]); } catch (_) { /* ignore */ }
+      try { oldBot.client.gamesPlayed([]); } catch (_) { /* ignore */ }
     }
 
     // Connect new account to GC (if logged in)
-    if (newBot.getStatus().state === 'logged_in' || newBot.getStatus().state === 'gc_ready') {
-      newBot.getClient().gamesPlayed([730]);
+    if (newBot.steamId) {
+      newBot.client.gamesPlayed([730]);
     }
 
     this.activeSteamId = steamId;

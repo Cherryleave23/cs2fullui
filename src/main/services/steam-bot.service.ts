@@ -1,156 +1,195 @@
+/**
+ * SteamBotService — strictly follows the steam-cs2-bot tech reference.
+ *
+ * Reference pattern: "Login + Token 持久化 (完整生产级)"
+ *   - enablePicsCache: true
+ *   - webCompatibilityMode: true (WebSocket:443 through firewalls)
+ *   - Proxy via Object.assign(client.options, {httpProxy, socksProxy})
+ *   - Token-first: reload saved token → password fallback
+ *   - Events: refreshToken/machineAuthToken → save; steamGuard → enforce 30s cooldown;
+ *             loggedOn → setPersona + gamesPlayed; disconnected/error → clear expired token
+ */
 import SteamUser from 'steam-user';
 import GlobalOffensive from 'globaloffensive';
 import { EventEmitter } from 'events';
 import { AccountRepo } from '../db/repositories/account.repo';
 
-export interface SteamBotStatus {
-  state: 'idle' | 'connecting' | 'logged_in' | 'gc_ready' | 'error';
-  steamId: string | null;
-  accountName: string | null;
-  nickname: string | null;
-  errorMessage?: string;
+export interface LoginResult {
+  success: boolean;
+  steamId?: string;
+  error?: string;
+}
+
+interface PendingLogin {
+  accountName: string;
+  password: string;
+  nickname?: string;
+  resolve: (r: LoginResult) => void;
+  loginDone: boolean;
 }
 
 export class SteamBotService extends EventEmitter {
-  private client: any;
+  client: any;
   csgo: any;
-  private status: SteamBotStatus = { state: 'idle', steamId: null, accountName: null, nickname: null };
-  private loginResolve: ((result: LoginResult) => void) | null = null;
-  private pendingPassword: string | null = null;
-  private pendingAccountName: string | null = null;
-  private steamGuardCallback: ((code: string) => void) | null = null;
+  private _steamId: string | null = null;
+  private _accountName: string | null = null;
+  private _nickname: string | null = null;
+  private _gcReady = false;
+  private _pendingLogin: PendingLogin | null = null;
 
   constructor() {
     super();
+    // ── Per tech reference: SteamUser constructor ──
     this.client = new SteamUser({
-      enablePicsCache: true,
+      enablePicsCache: true,          // REQUIRED for ownership/owns checks
       changelistUpdateInterval: 60000,
-      webCompatibilityMode: true,
+      webCompatibilityMode: true,     // WebSocket:443 through restrictive firewalls
     });
     this.csgo = new GlobalOffensive(this.client);
-    this.setupEvents();
+    this._bindEvents();
   }
 
-  private setupEvents(): void {
-    // ── Logged in ──
-    this.client.on('loggedOn', (_body: unknown) => {
-      // Extract steamId from the client after successful login
-      const steamId = this.client.steamID?.getSteamID64?.() || null;
-      console.log(`[SteamBot] Logged in as ${steamId} (${this.status.accountName})`);
-      this.updateStatus({ state: 'logged_in', steamId });
+  // ═══════════════════════════════════════════════
+  //  Event bindings — exactly matching tech reference
+  // ═══════════════════════════════════════════════
+
+  private _bindEvents(): void {
+    // ── loggedOn: setPersona + gamesPlayed ──
+    this.client.on('loggedOn', () => {
+      this._steamId = this.client.steamID?.getSteamID64?.() || null;
+      console.log(`[SteamBot] Logged on as ${this._steamId}`);
       this.client.setPersona(SteamUser.EPersonaState.Online);
-      this.client.gamesPlayed([730]);
+      this.client.gamesPlayed([730]);    // → triggers GC connection
 
-      // Resolve login promise
-      this.loginResolve?.({ success: true, steamId });
-      this.loginResolve = null;
+      if (this._pendingLogin) {
+        this._pendingLogin.loginDone = true;
+        this._pendingLogin.resolve({ success: true, steamId: this._steamId! });
+        this._syncAccount();
+        this._pendingLogin = null;
+      }
     });
 
-    // ── Refresh token — persist immediately ──
+    // ── refreshToken: persist immediately ──
     this.client.on('refreshToken', (token: string) => {
-      const steamId = this.client.steamID?.getSteamID64?.();
-      console.log(`[SteamBot] Refresh token received for ${steamId}, saving...`);
-      if (steamId) {
-        AccountRepo.updateToken(steamId, token);
-        this.updateStatus({ steamId });
+      const sid = this._steamId || this.client.steamID?.getSteamID64?.();
+      if (sid && this._pendingLogin?.accountName) {
+        AccountRepo.upsert({
+          steamId: sid,
+          accountName: this._pendingLogin.accountName,
+          nickname: this._nickname || this._pendingLogin.accountName,
+          refreshToken: token,
+        });
+        console.log(`[SteamBot] refreshToken saved for ${sid}`);
       }
+      this.emit('refreshToken', token);
     });
 
-    // ── Machine auth token (email Steam Guard bypass) ──
+    // ── machineAuthToken: save sentry file ──
     this.client.on('machineAuthToken', (token: string) => {
-      const steamId = this.client.steamID?.getSteamID64?.();
-      console.log(`[SteamBot] Machine token received for ${steamId}, saving...`);
-      if (steamId) {
-        AccountRepo.updateMachineToken(steamId, token);
+      const sid = this._steamId || this.client.steamID?.getSteamID64?.();
+      if (sid) {
+        AccountRepo.updateMachineToken(sid, token);
+        console.log(`[SteamBot] machineAuthToken saved for ${sid}`);
       }
     });
 
-    // ── Steam Guard ──
-    this.client.on('steamGuard', (domain: string | null, callback: (code: string) => void, lastWrong: boolean) => {
-      this.steamGuardCallback = callback;
-      if (lastWrong) {
-        console.warn('[SteamBot] Last Steam Guard code was wrong — enforcing 30s cooldown per steam-user docs');
-        // Critical: steam-user requires 30s wait on wrong TOTP to avoid IP ban
+    // ── steamGuard: enforce 30s cooldown on wrong code ──
+    this.client.on('steamGuard', (
+      domain: string | null,
+      callback: (code: string) => void,
+      lastCodeWrong: boolean,
+    ) => {
+      if (lastCodeWrong) {
+        // Per tech reference: MUST wait 30 seconds on wrong TOTP to avoid IP ban
+        console.warn(`[SteamBot] Wrong guard code — waiting 30s before accepting new code`);
+        this.emit('steamGuardNeeded', { domain, lastCodeWrong: true, cooldown: 30 });
         setTimeout(() => {
-          this.emit('steamGuard', domain, true);
+          this.emit('steamGuardNeeded', { domain, lastCodeWrong: false, cooldown: 0 });
+          this._guardCallback = callback;
         }, 30000);
-        return;
+      } else {
+        this.emit('steamGuardNeeded', { domain, lastCodeWrong: false, cooldown: 0 });
+        this._guardCallback = callback;
       }
-      this.emit('steamGuard', domain, false);
     });
+    this.client.on('steamGuard', () => {}); // ensure listener bound (avoids stdin prompt)
 
-    // ── Disconnected (non-fatal) ──
+    // ── disconnected: token expiry → clear, else autoRelogin ──
     this.client.on('disconnected', (eresult: number, msg: string) => {
-      // Fallback to stored steamId — client.steamID may already be null after disconnect
-      const steamId = this.client.steamID?.getSteamID64?.() || this.status.steamId;
-      console.log(`[SteamBot] Disconnected: ${msg} (${eresult})`);
+      const eresultName = SteamUser.EResult?.[eresult] || String(eresult);
+      console.log(`[SteamBot] Disconnected: ${msg} (${eresultName})`);
 
-      // Token expired/invalid — clear and fallback to password
-      if ((eresult === 84 || eresult === 63) && steamId) {
-        console.log('[SteamBot] Token expired, clearing and retrying with password...');
-        AccountRepo.updateToken(steamId, '');
-        if (this.pendingPassword && this.pendingAccountName) {
-          this.doPasswordLogin(this.pendingAccountName, this.pendingPassword);
-          return;
+      if (eresult === 84 || eresult === 63) {
+        // Token expired/invalid — clear it
+        const sid = this._steamId || this.client.steamID?.getSteamID64?.();
+        if (sid) {
+          AccountRepo.updateToken(sid, '');
+          console.log(`[SteamBot] Cleared expired token for ${sid}`);
         }
       }
 
-      if (this.status.state !== 'error') {
-        this.updateStatus({ state: 'idle' });
+      if (this._pendingLogin && !this._pendingLogin.loginDone) {
+        // Login never completed
+        this._pendingLogin.resolve({ success: false, error: `${msg} (${eresultName})` });
+        this._pendingLogin = null;
       }
-
-      this.loginResolve?.({
-        success: false,
-        error: `${msg} (${SteamUser.EResult?.[eresult] || eresult})`,
-      });
+      // autoRelogin is true by default — steam-user handles reconnection
     });
 
-    // ── Fatal error ──
+    // ── error: fatal — clear token, notify ──
     this.client.on('error', (err: any) => {
-      console.error('[SteamBot] Fatal error:', err.message || err);
-      const steamId = this.client.steamID?.getSteamID64?.() || this.status.steamId;
-      if ((err.eresult === 84 || err.eresult === 63 || err.message?.includes('InvalidToken')) && steamId) {
-        AccountRepo.updateToken(steamId, '');
+      console.error(`[SteamBot] Fatal error: ${err.message || err} (eresult=${err.eresult})`);
+      if (err.eresult === 84 || err.message?.includes('InvalidToken')) {
+        const sid = this._steamId || this.client.steamID?.getSteamID64?.();
+        if (sid) AccountRepo.updateToken(sid, '');
       }
-      this.updateStatus({ state: 'error', errorMessage: err.message });
-      this.loginResolve?.({ success: false, error: err.message });
+      if (this._pendingLogin && !this._pendingLogin.loginDone) {
+        this._pendingLogin.resolve({ success: false, error: err.message || String(err) });
+        this._pendingLogin = null;
+      }
     });
 
     // ── GC events ──
     this.csgo.on('connectedToGC', () => {
-      console.log(`[SteamBot] GC ready — ${this.csgo.inventory?.length || 0} items in inventory`);
-      this.updateStatus({ state: 'gc_ready' });
+      this._gcReady = true;
+      console.log(`[SteamBot] GC ready — ${this.csgo.inventory?.length || 0} items`);
       this.emit('inventoryReady', this.csgo.inventory);
     });
-
-    this.csgo.on('disconnectedFromGC', (reason: number) => {
-      console.log(`[SteamBot] GC disconnected: ${reason}`);
-      this.updateStatus({ state: 'logged_in' });
-    });
-
+    this.csgo.on('disconnectedFromGC', () => { this._gcReady = false; });
     this.csgo.on('itemAcquired', (item: unknown) => this.emit('itemAcquired', item));
     this.csgo.on('itemChanged', (oldItem: unknown, newItem: unknown) => this.emit('itemChanged', oldItem, newItem));
     this.csgo.on('itemRemoved', (item: unknown) => this.emit('itemRemoved', item));
     this.csgo.on('craftingComplete', (recipe: number, items: unknown[]) => this.emit('craftingComplete', recipe, items));
   }
 
-  // ── Public API ──
+  // ═══════════════════════════════════════════════
+  //  Guard code — stored callback pattern
+  // ═══════════════════════════════════════════════
 
-  getClient(): any { return this.client; }
-  getStatus(): SteamBotStatus { return { ...this.status }; }
-  isGCReady(): boolean { return this.status.state === 'gc_ready' && this.csgo.haveGCSession; }
+  private _guardCallback: ((code: string) => void) | null = null;
 
-  /** Submit Steam Guard code during login */
   submitSteamGuard(code: string): void {
-    this.steamGuardCallback?.(code);
-    this.steamGuardCallback = null;
+    if (this._guardCallback) {
+      const cb = this._guardCallback;
+      this._guardCallback = null;
+      cb(code);
+    }
   }
 
+  // ═══════════════════════════════════════════════
+  //  Public API
+  // ═══════════════════════════════════════════════
+
+  get steamId(): string | null { return this._steamId; }
+  get accountName(): string | null { return this._accountName; }
+  get nickname(): string | null { return this._nickname; }
+  get isGCReady(): boolean { return this._gcReady && this.csgo.haveGCSession; }
+
   /**
-   * Login with token-first strategy.
-   * 1. Check DB for saved refresh_token → try token login
-   * 2. Token absent/expired → password login
-   * 3. On success → save token + update accounts table
+   * Login — per tech reference token-first strategy.
+   *   1. Check DB for saved refresh_token → try token login
+   *   2. No token → password login
+   *   3. Proxy applied via Object.assign before logOn
    */
   async login(params: {
     accountName: string;
@@ -158,90 +197,69 @@ export class SteamBotService extends EventEmitter {
     proxyUrl?: string;
     nickname?: string;
   }): Promise<LoginResult> {
-    this.updateStatus({ state: 'connecting', accountName: params.accountName });
+    this._accountName = params.accountName;
+    this._nickname = params.nickname || params.accountName;
 
-    // Apply proxy
+    // ── Proxy: Object.assign pattern from tech reference ──
     if (params.proxyUrl) {
       if (params.proxyUrl.startsWith('socks')) {
-        this.client.options.socksProxy = params.proxyUrl;
+        Object.assign(this.client.options, { socksProxy: params.proxyUrl });
       } else {
-        this.client.options.httpProxy = params.proxyUrl;
+        Object.assign(this.client.options, { httpProxy: params.proxyUrl });
       }
     }
 
     return new Promise((resolve) => {
-      this.loginResolve = (result) => {
-        this.loginResolve = null;
-        resolve(result);
+      this._pendingLogin = {
+        accountName: params.accountName,
+        password: params.password,
+        nickname: params.nickname,
+        resolve,
+        loginDone: false,
       };
 
-      // Check for saved token
-      const saved = AccountRepo.getAll().find(
-        a => a.account_name === params.accountName
-      );
+      // Look up saved token by account_name
+      const saved = AccountRepo.getAll().find(a => a.account_name === params.accountName);
 
       if (saved?.refresh_token) {
-        console.log(`[SteamBot] Attempting token login for ${params.accountName}`);
-        this.pendingPassword = params.password;
-        this.pendingAccountName = params.accountName;
+        console.log(`[SteamBot] Token login for ${params.accountName}`);
         this.client.logOn({
           refreshToken: saved.refresh_token,
           steamID: saved.steam_id,
         });
       } else {
-        console.log(`[SteamBot] No saved token — password login for ${params.accountName}`);
-        this.doPasswordLogin(params.accountName, params.password);
-        // Also save pending for potential token retry after first success
-        this.pendingPassword = params.password;
-        this.pendingAccountName = params.accountName;
+        console.log(`[SteamBot] Password login for ${params.accountName}`);
+        this.client.logOn({
+          accountName: params.accountName,
+          password: params.password,
+        });
       }
     });
-  }
-
-  private doPasswordLogin(accountName: string, password: string): void {
-    this.client.logOn({ accountName, password });
   }
 
   logout(): void {
     this.client.gamesPlayed([]);
     setTimeout(() => {
       this.client.logOff();
-      this.updateStatus({ state: 'idle', steamId: null });
+      this._steamId = null;
+      this._gcReady = false;
     }, 500);
   }
 
-  // ── Internal ──
+  // ═══════════════════════════════════════════════
+  //  Internal
+  // ═══════════════════════════════════════════════
 
-  private updateStatus(partial: Partial<SteamBotStatus>): void {
-    this.status = { ...this.status, ...partial };
-
-    // On successful login, sync account to DB
-    const steamId = this.status.steamId || this.client.steamID?.getSteamID64?.();
-    if (steamId && this.pendingAccountName) {
-      const existing = AccountRepo.getBySteamId(steamId)
-        || AccountRepo.getByAccountName(this.pendingAccountName);
-
-      AccountRepo.upsert({
-        steamId,
-        accountName: this.pendingAccountName,
-        nickname: existing?.nickname || this.pendingAccountName,
-        proxyUrl: existing?.proxy_url || undefined,
-      });
-
-      AccountRepo.setActive(steamId);
-
-      if (!this.status.steamId) {
-        this.status.steamId = steamId;
-      }
-      this.status.nickname = existing?.nickname || this.pendingAccountName;
-    }
-
-    this.emit('statusChanged', this.status);
+  private _syncAccount(): void {
+    if (!this._steamId || !this._accountName) return;
+    const existing = AccountRepo.getBySteamId(this._steamId)
+      || AccountRepo.getByAccountName(this._accountName);
+    AccountRepo.upsert({
+      steamId: this._steamId,
+      accountName: this._accountName,
+      nickname: existing?.nickname || this._nickname || this._accountName,
+      proxyUrl: existing?.proxy_url || undefined,
+    });
+    AccountRepo.setActive(this._steamId);
   }
-}
-
-export interface LoginResult {
-  success: boolean;
-  steamId?: string;
-  error?: string;
 }

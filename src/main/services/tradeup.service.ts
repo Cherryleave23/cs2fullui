@@ -50,7 +50,7 @@ export async function executeTradeUp(
   bot: SteamBotService,
   input: TradeUpInput
 ): Promise<TradeUpResult> {
-  if (!bot.isGCReady()) {
+  if (!bot.isGCReady) {
     return { success: false, recipeUsed: -1, error: 'GC 未连接，请先登录 Steam 并等待 CS2 连接' };
   }
 

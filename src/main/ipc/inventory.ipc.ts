@@ -27,7 +27,7 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
   ipcMain.handle(IPC_CHANNELS.INVENTORY_REFRESH, async () => {
     try {
       const bot = botGetter();
-      if (!bot || !bot.isGCReady()) {
+      if (!bot || !bot.isGCReady) {
         return { success: false, error: 'GC 未连接' };
       }
 
@@ -84,7 +84,7 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
   ipcMain.handle(IPC_CHANNELS.INVENTORY_INSPECT_ITEM, async (_event, assetId: string, mode?: string) => {
     try {
       const bot = botGetter();
-      if (!bot || !bot.isGCReady()) {
+      if (!bot || !bot.isGCReady) {
         return { error: 'GC 未连接' };
       }
 
@@ -114,7 +114,7 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
         // Use individual params form
         try {
           csgo.inspectItem(
-            bot.getClient().steamID?.getSteamID64() || bot.getStatus().steamId,
+            bot.client.steamID?.getSteamID64() || bot.steamId,
             assetId,
             String(item.def_index)
           );

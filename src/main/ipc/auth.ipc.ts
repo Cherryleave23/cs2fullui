@@ -1,77 +1,52 @@
+/**
+ * Auth IPC — bridges SteamBotService events to the Electron renderer.
+ * Follows the tech reference pattern: login → guard → loggedOn → GC → inventory.
+ */
 import { ipcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { AccountRepo } from '../db/repositories/account.repo';
 import { accountManager } from '../services/account-manager';
 import { bindInventorySync } from '../services/inventory-sync.service';
 
+function mainWindow() { return BrowserWindow.getAllWindows()[0]; }
+
 export function registerAuthIpc(): void {
-  // ── Login ──
-  ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_event: any, params: {
-    accountName: string;
-    password: string;
-    proxyUrl?: string;
-    nickname?: string;
-    webCompatibilityMode?: boolean;
+  // ═══════════════════════════════════════
+  //  LOGIN
+  // ═══════════════════════════════════════
+  ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_e: any, params: {
+    accountName: string; password: string;
+    proxyUrl?: string; nickname?: string;
   }) => {
     try {
-      // Try to find existing account by accountName
       const existing = AccountRepo.getAll().find(a => a.account_name === params.accountName);
-
       const bot = accountManager.getOrCreate(existing?.steam_id || params.accountName);
-      const botStatus = bot.getStatus();
 
-      // If already logged in or connecting, don't re-login
-      if (botStatus.state === 'logged_in' || botStatus.state === 'gc_ready') {
-        return {
-          success: true,
-          steamId: botStatus.steamId,
-          alreadyLoggedIn: true,
-        };
+      // Already logged in
+      if (bot.isGCReady || (existing?.refresh_token && bot.steamId)) {
+        return { success: true, steamId: bot.steamId, alreadyLoggedIn: true };
       }
 
-      // Hook Steam Guard — use once() to avoid listener leak on repeated logins
-      const guardHandler = (_domain: string | null, lastWrong: boolean) => {
-        const mainWindow = BrowserWindow.getAllWindows()[0];
-        if (mainWindow) {
-          mainWindow.webContents.send(IPC_CHANNELS.PUSH_STEAM_STATUS, {
-            steamGuardNeeded: true,
-            lastCodeWrong: lastWrong,
-            accountName: params.accountName,
-          });
-        }
-      };
-      bot.on('steamGuard', guardHandler);
-
-      const result = await bot.login({
-        accountName: params.accountName,
-        password: params.password,
-        proxyUrl: params.proxyUrl,
-        nickname: params.nickname || existing?.nickname || params.accountName,
+      // Register guard event bridge (once)
+      bot.removeAllListeners('steamGuardNeeded');
+      bot.on('steamGuardNeeded', (info: { domain: string | null; lastCodeWrong: boolean; cooldown: number }) => {
+        mainWindow()?.webContents.send(IPC_CHANNELS.PUSH_STEAM_STATUS, {
+          steamGuardNeeded: true,
+          lastCodeWrong: info.lastCodeWrong,
+          cooldown: info.cooldown,
+        });
       });
 
-      // Cleanup guard listener after login completes (success or fail)
-      bot.removeListener('steamGuard', guardHandler);
+      // Start login
+      const result = await bot.login(params);
 
       if (result.success && result.steamId) {
-        // Update nickname if provided
-        if (params.nickname) {
-          AccountRepo.updateNickname(result.steamId, params.nickname);
-        }
-        AccountRepo.setActive(result.steamId);
-
-        // Bind inventory sync on first GC connect
+        // Bind inventory sync
         bindInventorySync(bot, existing?.id || 0, {
           onSyncComplete: (count) => {
-            const mainWindow = BrowserWindow.getAllWindows()[0];
-            mainWindow?.webContents.send(IPC_CHANNELS.PUSH_STEAM_STATUS, {
-              inventorySynced: true, count, accountName: params.accountName,
+            mainWindow()?.webContents.send(IPC_CHANNELS.PUSH_STEAM_STATUS, {
+              inventorySynced: true, count,
             });
-          },
-          onItemUpdate: (_item) => {
-            BrowserWindow.getAllWindows()[0]?.webContents.send(IPC_CHANNELS.PUSH_ITEM_CHANGED, _item);
-          },
-          onItemRemove: (assetId) => {
-            BrowserWindow.getAllWindows()[0]?.webContents.send(IPC_CHANNELS.PUSH_ITEM_REMOVED, assetId);
           },
         });
       }
@@ -82,10 +57,11 @@ export function registerAuthIpc(): void {
     }
   });
 
-  // ── Submit Steam Guard code ──
-  ipcMain.handle(IPC_CHANNELS.AUTH_SUBMIT_STEAM_GUARD, async (_event: any, params: {
-    accountName: string;
-    code: string;
+  // ═══════════════════════════════════════
+  //  SUBMIT STEAM GUARD CODE
+  // ═══════════════════════════════════════
+  ipcMain.handle(IPC_CHANNELS.AUTH_SUBMIT_STEAM_GUARD, async (_e: any, params: {
+    accountName: string; code: string;
   }) => {
     const existing = AccountRepo.getAll().find(a => a.account_name === params.accountName);
     const bot = accountManager.get(existing?.steam_id || params.accountName);
@@ -96,90 +72,64 @@ export function registerAuthIpc(): void {
     return { success: false, error: 'No pending Steam Guard for this account' };
   });
 
-  // ── Logout ──
-  ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async (_event: any, params?: { accountName?: string }) => {
+  // ═══════════════════════════════════════
+  //  LOGOUT
+  // ═══════════════════════════════════════
+  ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async (_e: any, params?: { accountName?: string }) => {
     if (params?.accountName) {
       const existing = AccountRepo.getAll().find(a => a.account_name === params.accountName);
       if (existing) accountManager.remove(existing.steam_id);
     } else {
-      // Logout all
-      const all = AccountRepo.getAll();
-      for (const a of all) accountManager.remove(a.steam_id);
+      for (const a of AccountRepo.getAll()) accountManager.remove(a.steam_id);
     }
     return { success: true };
   });
 
-  // ── Get status ──
+  // ═══════════════════════════════════════
+  //  STATUS
+  // ═══════════════════════════════════════
   ipcMain.handle(IPC_CHANNELS.AUTH_GET_STATUS, async () => {
-    const active = accountManager.getActive();
-    const status = active?.getStatus();
+    const bot = accountManager.getActive();
     return {
-      state: status?.state || 'idle',
-      steamId: status?.steamId || null,
-      accountName: status?.accountName || null,
-      nickname: status?.nickname || null,
-      isGCReady: active?.isGCReady() || false,
+      state: bot?.isGCReady ? 'gc_ready' : bot?.steamId ? 'logged_in' : 'idle',
+      steamId: bot?.steamId || null,
+      accountName: bot?.accountName || null,
+      nickname: bot?.nickname || null,
+      isGCReady: bot?.isGCReady || false,
     };
   });
 
-  // ── List all accounts ──
+  // ═══════════════════════════════════════
+  //  ACCOUNTS LIST
+  // ═══════════════════════════════════════
   ipcMain.handle(IPC_CHANNELS.AUTH_GET_ACCOUNTS, async () => {
     return AccountRepo.getAll().map(a => ({
-      id: a.id,
-      steamId: a.steam_id,
-      accountName: a.account_name,
-      nickname: a.nickname || a.account_name,
-      isActive: a.is_active === 1,
-      lastLoginAt: a.last_login_at,
-      hasToken: !!a.refresh_token,
+      id: a.id, steamId: a.steam_id, accountName: a.account_name,
+      nickname: a.nickname || a.account_name, isActive: a.is_active === 1,
+      lastLoginAt: a.last_login_at, hasToken: !!a.refresh_token,
     }));
   });
 
-  // ── Switch active account ──
-  ipcMain.handle('auth:switch', async (_event: any, steamId: string) => {
-    try {
-      await accountManager.switchTo(steamId);
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
+  // ═══════════════════════════════════════
+  //  SWITCH / NICKNAME / DELETE / PROXY
+  // ═══════════════════════════════════════
+  ipcMain.handle('auth:switch', async (_e: any, steamId: string) => {
+    try { await accountManager.switchTo(steamId); return { success: true }; }
+    catch (err: any) { return { success: false, error: err.message }; }
   });
-
-  // ── Update nickname ──
-  ipcMain.handle('auth:update-nickname', async (_event: any, params: {
-    steamId: string;
-    nickname: string;
-  }) => {
-    AccountRepo.updateNickname(params.steamId, params.nickname);
-    return { success: true };
+  ipcMain.handle('auth:update-nickname', async (_e: any, p: { steamId: string; nickname: string }) => {
+    AccountRepo.updateNickname(p.steamId, p.nickname); return { success: true };
   });
-
-  // ── Delete account ──
-  ipcMain.handle('auth:delete-account', async (_event: any, steamId: string) => {
-    accountManager.remove(steamId);
-    return { success: true };
+  ipcMain.handle('auth:delete-account', async (_e: any, steamId: string) => {
+    accountManager.remove(steamId); return { success: true };
   });
-
-  // ── Proxy config (per account) ──
-  ipcMain.handle(IPC_CHANNELS.AUTH_GET_PROXY_CONFIG, async (_event: any, steamId?: string) => {
-    if (steamId) {
-      const account = AccountRepo.getBySteamId(steamId);
-      return { proxyUrl: account?.proxy_url || '' };
-    }
-    const active = AccountRepo.getActive();
-    return { proxyUrl: active?.proxy_url || '' };
+  ipcMain.handle(IPC_CHANNELS.AUTH_GET_PROXY_CONFIG, async (_e: any, steamId?: string) => {
+    if (steamId) return { proxyUrl: AccountRepo.getBySteamId(steamId)?.proxy_url || '' };
+    return { proxyUrl: AccountRepo.getActive()?.proxy_url || '' };
   });
-
-  ipcMain.handle(IPC_CHANNELS.AUTH_SET_PROXY_CONFIG, async (_event: any, params: {
-    steamId?: string;
-    proxyUrl: string;
-  }) => {
-    if (params.steamId) {
-      AccountRepo.setProxy(params.steamId, params.proxyUrl || null);
-    } else {
-      const active = AccountRepo.getActive();
-      if (active) AccountRepo.setProxy(active.steam_id, params.proxyUrl || null);
-    }
+  ipcMain.handle(IPC_CHANNELS.AUTH_SET_PROXY_CONFIG, async (_e: any, p: { steamId?: string; proxyUrl: string }) => {
+    if (p.steamId) AccountRepo.setProxy(p.steamId, p.proxyUrl || null);
+    else { const a = AccountRepo.getActive(); if (a) AccountRepo.setProxy(a.steam_id, p.proxyUrl || null); }
     return { success: true };
   });
 }
