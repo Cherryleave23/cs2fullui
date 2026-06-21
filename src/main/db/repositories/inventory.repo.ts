@@ -1,6 +1,28 @@
 import { dbAll, dbGet, dbRun, saveDatabase } from '../connection';
 import type { ResolvedItem } from '../../../shared/types/item';
 
+// DB returns snake_case; app uses camelCase
+function toCamel(row: Record<string, any>): ResolvedItem {
+  return {
+    assetId: row.asset_id, defIndex: row.def_index,
+    resolvedType: row.resolved_type, resolvedName: row.resolved_name,
+    resolvedNameZh: row.resolved_name_zh,
+    paintIndex: row.paint_index, paintSeed: row.paint_seed, paintWear: row.paint_wear,
+    rarity: row.rarity, rarityName: row.rarity_name, rarityNameZh: row.rarity_name_zh,
+    rarityColor: row.rarity_color, quality: row.quality, origin: row.origin,
+    customName: row.custom_name,
+    wearCategory: row.wear_category, wearCategoryZh: row.wear_category_zh,
+    minFloat: row.min_float, maxFloat: row.max_float,
+    marketHashName: row.market_hash_name, weaponType: row.weapon_type,
+    collectionName: row.collection_name, imageUrl: row.image_url,
+    killEaterValue: row.kill_eater_value, killEaterScoreType: row.kill_eater_score_type,
+    casketId: row.casket_id, tradableAfter: row.tradable_after,
+    position: row.position, inUse: row.in_use === 1,
+    isStatTrak: row.is_stattrak === 1, isSouvenir: row.is_souvenir === 1,
+    extraJson: row.extra_json,
+  };
+}
+
 export const InventoryRepo = {
   /** Upsert a single resolved item (matched by asset_id) */
   upsertItem(item: ResolvedItem): void {
@@ -117,12 +139,13 @@ export const InventoryRepo = {
     }
 
     sql += ' ORDER BY rarity DESC, paint_wear ASC';
-    return dbAll<ResolvedItem>(sql, params);
+    return dbAll<Record<string, any>>(sql, params).map(toCamel);
   },
 
   /** Get a single item by asset_id */
   getByAssetId(assetId: string): ResolvedItem | null {
-    return dbGet<ResolvedItem>('SELECT * FROM inventory_items WHERE asset_id = ?', [assetId]);
+    const row = dbGet<Record<string, any>>('SELECT * FROM inventory_items WHERE asset_id = ?', [assetId]);
+    return row ? toCamel(row) : null;
   },
 
   /** Remove an item by asset_id */
