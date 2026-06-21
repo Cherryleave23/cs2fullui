@@ -5,6 +5,8 @@ import { ipcMain, BrowserWindow } from 'electron';
 import SteamUser from 'steam-user';
 import GlobalOffensive from 'globaloffensive';
 import { AccountRepo } from '../db/repositories/account.repo';
+import { csgoResolver } from '../services/csgoapi-resolver.service';
+import { InventoryRepo } from '../db/repositories/inventory.repo';
 
 let client: any = null;
 let csgo: any = null;
@@ -86,8 +88,6 @@ function bindEvents(c: any, g: any, accountName: string): void {
       const rawCount = g.inventory?.length || 0;
       console.log(`[SteamDirect] GC ready — ${rawCount} items`);
       try {
-        const { csgoResolver } = require('../services/csgoapi-resolver.service');
-        const { InventoryRepo } = require('../db/repositories/inventory.repo');
         const loaded = csgoResolver.load();
         console.log(`[SteamDirect] Resolver loaded: ${loaded}, inventory: ${g.inventory?.length || 0}`);
         if (loaded && g.inventory) {

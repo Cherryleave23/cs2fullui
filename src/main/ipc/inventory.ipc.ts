@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
+import { csgoResolver } from '../services/csgoapi-resolver.service';
 import type { SteamBotService } from '../services/steam-bot.service';
 import type { ResolvedItem } from '../../shared/types/item';
 
@@ -42,19 +43,22 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
         return { success: true, count: stats.totalItems, fromCache: true, items, total: stats.totalItems, stats };
       }
       const rawItems = csgo.inventory || [];
-
+      // Use CsgoapiResolver (same as steam-direct)
+      if (csgoResolver.load()) {
+        const looseItems = rawItems.filter((i: any) => !i.casket_id);
+        const resolved = csgoResolver.resolveAll(looseItems);
+        InventoryRepo.clearAll();
+        for (const item of resolved) InventoryRepo.upsertItem(item);
+        return { success: true, count: resolved.length };
+      }
+      // Fallback: basic resolution
       InventoryRepo.clearAll();
       for (const item of rawItems) {
-        // Basic resolution without CsgoResolver (full resolver in Phase 4)
         const resolved: Partial<ResolvedItem> = {
-          assetId: String(item.id),
-          defIndex: item.def_index ?? 0,
-          paintIndex: item.paint_index ?? 0,
-          paintSeed: item.paint_seed ?? 0,
-          paintWear: item.paint_wear ?? 0,
-          rarity: item.rarity ?? 0,
-          quality: item.quality ?? 4,
-          origin: item.origin ?? 0,
+          assetId: String(item.id), defIndex: item.def_index ?? 0,
+          paintIndex: item.paint_index ?? 0, paintSeed: item.paint_seed ?? 0,
+          paintWear: item.paint_wear ?? 0, rarity: item.rarity ?? 0,
+          quality: item.quality ?? 4, origin: item.origin ?? 0,
           customName: item.custom_name ?? '',
           killEaterValue: item.kill_eater_value ?? 0,
           killEaterScoreType: item.kill_eater_score_type ?? 0,
@@ -62,27 +66,15 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
           tradableAfter: item.tradable_after?.toISOString() ?? '',
           isStatTrak: (item.quality ?? 4) === 9,
           isSouvenir: (item.quality ?? 4) === 12,
-          position: (item as any).position ?? 0,
-          inUse: item.in_use ?? false,
-          resolvedType: 'unknown',
-          resolvedName: `Item ${item.def_index}`,
-          resolvedNameZh: `物品 ${item.def_index}`,
-          marketHashName: '',
-          weaponType: '',
-          collectionName: '',
-          imageUrl: '',
-          rarityName: '',
-          rarityNameZh: '',
-          rarityColor: '#b0c4d8',
-          wearCategory: '',
-          wearCategoryZh: '',
-          minFloat: 0,
-          maxFloat: 1,
-          extraJson: '',
+          resolvedType: 'unknown', resolvedName: `Item ${item.def_index}`,
+          resolvedNameZh: `物品 ${item.def_index}`, marketHashName: '', weaponType: '',
+          collectionName: '', imageUrl: '', rarityName: '', rarityNameZh: '',
+          rarityColor: '#b0c4d8', wearCategory: '', wearCategoryZh: '',
+          minFloat: 0, maxFloat: 1, extraJson: '',
+          position: (item as any).position ?? 0, inUse: item.in_use ?? false,
         };
         InventoryRepo.upsertItem(resolved as ResolvedItem);
       }
-
       return { success: true, count: rawItems.length };
     } catch (err: any) {
       return { success: false, error: err.message };
