@@ -24,6 +24,10 @@ const MinimalLogin: React.FC = () => {
     (window.electronAPI as any).steamListSaved?.().then((list: any[]) => {
       if (list) setSavedAccounts(list);
     }).catch(() => {});
+    // Restore login state (survives page navigation — client lives in main process)
+    (window.electronAPI as any).steamStatus?.().then((s: any) => {
+      if (s?.steamId) { setSteamId(s.steamId); setGcReady(s.gcReady); setInvCount(s.itemCount); }
+    }).catch(() => {});
     // Auto-relogin on startup if saved account has token
     (window.electronAPI as any).steamAutoLogin?.().catch(() => {});
   }, []);

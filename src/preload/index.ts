@@ -99,6 +99,7 @@ const electronAPI = {
   steamGuard: (params: { code: string }) =>
     ipcRenderer.invoke('steam:guard', params),
   steamListSaved: () => ipcRenderer.invoke('steam:list-saved'),
+  steamStatus: () => ipcRenderer.invoke('steam:status'),
   onSteamLog: (callback: (data: unknown) => void) => {
     const handler = (_event: any, data: unknown) => callback(data);
     ipcRenderer.on('push:steam-log', handler);

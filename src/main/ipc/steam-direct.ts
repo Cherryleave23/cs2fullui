@@ -85,9 +85,21 @@ function bindEvents(c: any, g: any, accountName: string): void {
       try {
         const { csgoResolver } = require('../services/csgoapi-resolver.service');
         const { InventoryRepo } = require('../db/repositories/inventory.repo');
-        if (csgoResolver.load() && g.inventory) {
+        const loaded = csgoResolver.load();
+        console.log(`[SteamDirect] Resolver loaded: ${loaded}, inventory: ${g.inventory?.length || 0}`);
+        if (loaded && g.inventory) {
           const loose = g.inventory.filter((i: any) => !i.casket_id);
+          // Sample: log first 3 raw items
+          for (let i = 0; i < Math.min(3, loose.length); i++) {
+            const raw = loose[i];
+            console.log(`[SteamDirect] Raw[${i}]: id=${raw.id} def=${raw.def_index} paint=${raw.paint_index} rarity=${raw.rarity} quality=${raw.quality} stickers=${raw.stickers?.length || 0}`);
+          }
           const resolved = csgoResolver.resolveAll(loose);
+          // Sample: log first 3 resolved items
+          for (let i = 0; i < Math.min(3, resolved.length); i++) {
+            const r = resolved[i];
+            console.log(`[SteamDirect] Resolved[${i}]: type=${r.resolvedType} name=${r.resolvedName} rarity=${r.rarityName} paint=${r.paintIndex}`);
+          }
           InventoryRepo.clearAll();
           for (const item of resolved) InventoryRepo.upsertItem(item);
           console.log(`[SteamDirect] Synced ${resolved.length} items`);
@@ -130,6 +142,15 @@ export function registerSteamDirect(): void {
         client.logOn({ refreshToken: active.refresh_token!, steamID: active.steam_id });
       });
     } catch (err: any) { return { success: false, error: err.message }; }
+  });
+
+  // ═══════════════════════════════════
+  //  GET CURRENT STATUS (for UI restore after navigation)
+  // ═══════════════════════════════════
+  ipcMain.handle('steam:status', async () => {
+    const steamId = client?.steamID?.getSteamID64?.() || null;
+    const gcOk = !!(csgo?.haveGCSession);
+    return { steamId, gcReady: gcOk, itemCount: csgo?.inventory?.length || 0 };
   });
 
   // ═══════════════════════════════════

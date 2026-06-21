@@ -55,8 +55,10 @@ class CsgoapiResolver {
     }
 
     if (!allPath) {
-      console.warn('[CsgoResolver] all.json not found. Download it from CSGO-API.');
-      console.warn('[CsgoResolver] Searched:', paths);
+      console.warn('[CsgoResolver] all.json not found. Searched:');
+      for (const p of paths) {
+        console.warn(`  ${p} → ${require('fs').existsSync(p) ? 'EXISTS' : 'MISSING'}`);
+      }
       return false;
     }
 
