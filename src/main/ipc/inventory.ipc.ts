@@ -23,15 +23,24 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
     }
   });
 
-  // ── Refresh inventory from GC ──
+  // ── Refresh inventory — uses steam-direct client or AccountManager bot ──
   ipcMain.handle(IPC_CHANNELS.INVENTORY_REFRESH, async () => {
     try {
-      const bot = botGetter();
-      if (!bot || !bot.isGCReady) {
-        return { success: false, error: 'GC 未连接' };
+      // Try steam-direct client first
+      let csgo: any = null;
+      try { csgo = require('../ipc/steam-direct').getCsgo(); } catch (_) {}
+      // Fallback to AccountManager bot
+      if (!csgo) {
+        const bot = botGetter();
+        if (bot?.isGCReady) csgo = bot.csgo;
       }
 
-      const csgo = bot.csgo;
+      if (!csgo) {
+        // No GC connection — return whatever is already in DB
+        const items = InventoryRepo.getAllItems();
+        const stats = InventoryRepo.getStats();
+        return { success: true, count: stats.totalItems, fromCache: true, items, total: stats.totalItems, stats };
+      }
       const rawItems = csgo.inventory || [];
 
       InventoryRepo.clearAll();

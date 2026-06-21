@@ -8,6 +8,9 @@ import { AccountRepo } from '../db/repositories/account.repo';
 
 let client: any = null;
 let csgo: any = null;
+
+/** Getter for inventory.ipc.ts to access the live GC connection */
+export function getCsgo(): any { return csgo?.haveGCSession ? csgo : null; }
 let guardCallback: ((code: string) => void) | null = null;
 let loginTimer: ReturnType<typeof setTimeout> | null = null;
 let currentAccountName = '';
