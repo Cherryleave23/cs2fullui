@@ -4,7 +4,8 @@ import { registerAllIpcHandlers } from './ipc';
 import { initDatabase, closeDatabase, saveDatabase } from './db/connection';
 import { runMigrations } from './db/migrations';
 import { seedReferenceData } from './db/seed';
-import { getBotService, destroyBotService } from './services';
+import { initServices } from './services';
+import { accountManager } from './services/account-manager';
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -23,8 +24,8 @@ app.whenReady().then(async () => {
   await initDatabase();
   runMigrations();
   seedReferenceData();
+  initServices();
 
-  getBotService();
   registerAllIpcHandlers();
   createMainWindow();
 
@@ -47,6 +48,5 @@ const saveInterval = setInterval(() => {
 
 app.on('before-quit', () => {
   clearInterval(saveInterval);
-  destroyBotService();
   closeDatabase();
 });

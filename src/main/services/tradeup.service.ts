@@ -64,7 +64,7 @@ export async function executeTradeUp(
   }
 
   // ── 2. Find items in inventory ──
-  const csgo = bot.getCSGO();
+  const csgo = bot.csgo;
   const rawItems = input.assetIds
     .map(id => csgo.inventory.find((i: any) => String(i.id) === String(id)))
     .filter(Boolean);

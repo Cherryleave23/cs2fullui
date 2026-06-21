@@ -1,25 +1,12 @@
-import { SteamBotService } from './steam-bot.service';
+import { accountManager } from './account-manager';
+import { csgoResolver } from './csgoapi-resolver.service';
+import { bindInventorySync } from './inventory-sync.service';
 
-let botInstance: SteamBotService | null = null;
+export { accountManager, csgoResolver, bindInventorySync };
 
-/** Get or create the SteamBotService singleton */
-export function getBotService(): SteamBotService {
-  if (!botInstance) {
-    botInstance = new SteamBotService();
-  }
-  return botInstance;
-}
-
-/** Get current bot instance (may be null if not created yet) */
-export function tryGetBotService(): SteamBotService | null {
-  return botInstance;
-}
-
-/** Destroy the bot service (on app quit) */
-export function destroyBotService(): void {
-  if (botInstance) {
-    botInstance.logout();
-    botInstance.removeAllListeners();
-    botInstance = null;
-  }
+/** Initialize all services */
+export function initServices(): void {
+  // Load csgoapi data
+  const loaded = csgoResolver.load();
+  console.log(`[Services] CsgoResolver loaded: ${loaded}`);
 }

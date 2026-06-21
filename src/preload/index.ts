@@ -12,16 +12,25 @@ const electronAPI = {
       accountName: string;
       password: string;
       proxyUrl?: string;
+      nickname?: string;
       webCompatibilityMode?: boolean;
     }) => ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGIN, params),
-    logout: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT),
+    logout: (params?: { accountName?: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT, params),
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GET_STATUS),
-    submitSteamGuard: (code: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.AUTH_SUBMIT_STEAM_GUARD, code),
-    getProxyConfig: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GET_PROXY_CONFIG),
-    setProxyConfig: (config: { proxyUrl: string }) =>
-      ipcRenderer.invoke(IPC_CHANNELS.AUTH_SET_PROXY_CONFIG, config),
+    submitSteamGuard: (params: { accountName: string; code: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AUTH_SUBMIT_STEAM_GUARD, params),
+    getProxyConfig: (steamId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AUTH_GET_PROXY_CONFIG, steamId),
+    setProxyConfig: (params: { steamId?: string; proxyUrl: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AUTH_SET_PROXY_CONFIG, params),
     getAccounts: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GET_ACCOUNTS),
+    switchAccount: (steamId: string) =>
+      ipcRenderer.invoke('auth:switch', steamId),
+    updateNickname: (params: { steamId: string; nickname: string }) =>
+      ipcRenderer.invoke('auth:update-nickname', params),
+    deleteAccount: (steamId: string) =>
+      ipcRenderer.invoke('auth:delete-account', steamId),
   },
 
   // ── Inventory ──

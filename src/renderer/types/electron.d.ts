@@ -7,14 +7,18 @@ export interface ElectronAPI {
       accountName: string;
       password: string;
       proxyUrl?: string;
+      nickname?: string;
       webCompatibilityMode?: boolean;
-    }): Promise<{ success: boolean; steamId?: string; error?: string; needSteamGuard?: boolean }>;
-    logout(): Promise<void>;
-    getStatus(): Promise<{ status: string; steamId: string | null }>;
-    submitSteamGuard(code: string): Promise<void>;
-    getProxyConfig(): Promise<{ proxyUrl: string }>;
-    setProxyConfig(config: { proxyUrl: string }): Promise<void>;
-    getAccounts(): Promise<Array<{ id: number; steamId: string; accountName: string }>>;
+    }): Promise<{ success: boolean; steamId?: string; error?: string; needSteamGuard?: boolean; alreadyLoggedIn?: boolean }>;
+    logout(params?: { accountName?: string }): Promise<void>;
+    getStatus(): Promise<{ state: string; steamId: string | null; accountName: string | null; nickname: string | null; isGCReady: boolean }>;
+    submitSteamGuard(params: { accountName: string; code: string }): Promise<void>;
+    getProxyConfig(steamId?: string): Promise<{ proxyUrl: string }>;
+    setProxyConfig(params: { steamId?: string; proxyUrl: string }): Promise<void>;
+    getAccounts(): Promise<Array<{ id: number; steamId: string; accountName: string; nickname: string; isActive: boolean; lastLoginAt: string | null; hasToken: boolean }>>;
+    switchAccount(steamId: string): Promise<{ success: boolean; error?: string }>;
+    updateNickname(params: { steamId: string; nickname: string }): Promise<{ success: boolean }>;
+    deleteAccount(steamId: string): Promise<{ success: boolean }>;
   };
   inventory: {
     getItems(filter?: Record<string, unknown>): Promise<{ items: unknown[]; total: number; stats: unknown }>;

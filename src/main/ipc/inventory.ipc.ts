@@ -31,7 +31,7 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
         return { success: false, error: 'GC 未连接' };
       }
 
-      const csgo = bot.getCSGO();
+      const csgo = bot.csgo;
       const rawItems = csgo.inventory || [];
 
       InventoryRepo.clearAll();
@@ -89,7 +89,7 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
       }
 
       // Find item in inventory to get owner info
-      const csgo = bot.getCSGO();
+      const csgo = bot.csgo;
       const item = csgo.inventory.find((i: any) => String(i.id) === String(assetId));
       if (!item) {
         return { error: '物品未在库存中找到' };

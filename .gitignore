@@ -36,3 +36,6 @@ logs/
 
 # Tests
 coverage/
+
+# Electron binary
+*.zip
