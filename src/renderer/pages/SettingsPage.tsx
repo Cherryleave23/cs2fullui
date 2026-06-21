@@ -8,6 +8,8 @@ import {
   InfoCircleOutlined,
   LogoutOutlined,
   SaveOutlined,
+  CheckCircleOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import LoginForm from '../components/auth/LoginForm';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -18,13 +20,19 @@ const SettingsPage: React.FC = () => {
   const { status, steamId, accountName, reset } = useAuthStore();
   const [proxyForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [dataStatus, setDataStatus] = useState<{ csgoapiDownloaded: boolean; csgoapiLang: string }>({
+    csgoapiDownloaded: false,
+    csgoapiLang: '',
+  });
 
   const isLoggedIn = status === 'logged_in' || status === 'gc_ready';
 
   useEffect(() => {
-    // Load proxy config
     window.electronAPI.auth.getProxyConfig().then((c: any) => {
       proxyForm.setFieldsValue({ proxyUrl: c.proxyUrl || '' });
+    });
+    window.electronAPI.data.getStatus().then((s: any) => {
+      if (s) setDataStatus(s);
     });
   }, []);
 
@@ -50,18 +58,14 @@ const SettingsPage: React.FC = () => {
             <Descriptions.Item label="Steam ID">
               <Text code>{steamId}</Text>
             </Descriptions.Item>
-            <Descriptions.Item label="账号">
-              {accountName}
-            </Descriptions.Item>
+            <Descriptions.Item label="账号">{accountName}</Descriptions.Item>
             <Descriptions.Item label="CS2 GC 状态" span={2}>
               <Tag color={status === 'gc_ready' ? 'green' : 'orange'}>
                 {status === 'gc_ready' ? '已连接' : '连接中...'}
               </Tag>
             </Descriptions.Item>
           </Descriptions>
-          <Button danger icon={<LogoutOutlined />} onClick={handleLogout}>
-            登出
-          </Button>
+          <Button danger icon={<LogoutOutlined />} onClick={handleLogout}>登出</Button>
         </Space>
       ) : (
         <LoginForm />
@@ -76,12 +80,7 @@ const SettingsPage: React.FC = () => {
           <Input placeholder="socks5://127.0.0.1:10808" />
         </Form.Item>
         <Form.Item help="支持 socks5:// 和 http:// 格式。留空则直连。">
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            loading={saving}
-            onClick={handleSaveProxy}
-          >
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSaveProxy}>
             保存代理配置
           </Button>
         </Form.Item>
@@ -93,11 +92,22 @@ const SettingsPage: React.FC = () => {
     <Card bordered={false}>
       <Title level={5}>数据管理</Title>
       <Paragraph>
-        CSGO-API 数据状态：<Text type="warning">未下载</Text>
+        CSGO-API 数据状态：
+        {dataStatus.csgoapiDownloaded ? (
+          <Text type="success">
+            <CheckCircleOutlined style={{ marginRight: 4 }} />
+            已下载 ({dataStatus.csgoapiLang})
+          </Text>
+        ) : (
+          <Text type="warning">
+            <WarningOutlined style={{ marginRight: 4 }} />
+            未下载
+          </Text>
+        )}
       </Paragraph>
       <Paragraph type="secondary">
         CSGO-API 提供物品名称、稀有度、图片等静态数据。
-        下载后可在无网络环境下查看完整物品信息。
+        将 all.json 放到项目 data/ 目录下即可自动加载。
       </Paragraph>
     </Card>
   );
@@ -105,9 +115,7 @@ const SettingsPage: React.FC = () => {
   const appearanceTab = (
     <Card bordered={false}>
       <Title level={5}>界面设置</Title>
-      <Paragraph>
-        语言：简体中文 | 主题：浅色 (暗色主题开发中)
-      </Paragraph>
+      <Paragraph>语言：简体中文 | 主题：浅色 (暗色主题开发中)</Paragraph>
     </Card>
   );
 

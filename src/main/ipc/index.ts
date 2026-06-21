@@ -16,10 +16,24 @@ export function registerAllIpcHandlers(): void {
   });
 
   // ── Data ──
-  ipcMain.handle(IPC_CHANNELS.DATA_GET_STATUS, () => ({
-    csgoapiDownloaded: true,
-    csgoapiLang: 'zh-CN',
-  }));
+  ipcMain.handle(IPC_CHANNELS.DATA_GET_STATUS, () => {
+    const fs = require('fs');
+    const path = require('path');
+    const paths = [
+      path.join(process.cwd(), 'data', 'all.json'),
+      path.join(process.cwd(), 'data', 'csgoapi', 'all.json'),
+    ];
+    let downloaded = false;
+    let lang = '';
+    for (const p of paths) {
+      if (fs.existsSync(p)) {
+        downloaded = true;
+        lang = 'zh-CN';
+        break;
+      }
+    }
+    return { csgoapiDownloaded: downloaded, csgoapiLang: lang };
+  });
 
   ipcMain.handle(IPC_CHANNELS.DATA_CLEAR_CACHE, () => {
     const { getDbPath } = require('../db/connection');
