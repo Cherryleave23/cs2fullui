@@ -10,14 +10,14 @@ interface FloatBarProps {
 
 const WEAR_STOPS = [0, 0.07, 0.15, 0.38, 0.45, 1.0];
 const WEAR_GRADIENT = [
-  '#5e98d9', // FN
-  '#8847ff', // MW
-  '#4b69ff', // FT
-  '#d32ce6', // WW
-  '#eb4b4b', // BS
+  '#5e98d9', '#8847ff', '#4b69ff', '#d32ce6', '#eb4b4b',
 ];
 
 const FloatBar: React.FC<FloatBarProps> = ({ floatValue, minFloat = 0, maxFloat = 1, width = 120 }) => {
+  // Guard against undefined/null for non-weapon items (stickers, crates, etc.)
+  if (floatValue == null) {
+    return <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>N/A</span>;
+  }
   const clamped = Math.max(0, Math.min(1, floatValue));
   const pos = ((clamped - 0) / 1.0) * 100;
 
