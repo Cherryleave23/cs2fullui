@@ -104,9 +104,9 @@ class CsgoapiResolver {
     const quality = rawItem.quality ?? 4;
     const origin = rawItem.origin ?? 0;
     const stickers = rawItem.stickers;
-    // StatTrak/Souvenir only meaningful for weapon skins
-    let isStatTrak = false;
-    let isSouvenir = false;
+    // Per manual: quality 4=Normal, 9=StatTrak, 12=Souvenir
+    const isStatTrak = quality === 9;
+    const isSouvenir = quality === 12;
 
     // ── Three-way dispatch (EXACTLY per manual) ──
     let rType = 'unknown';
@@ -167,13 +167,11 @@ class CsgoapiResolver {
       }
     }
 
-    // Wear + StatTrak/Souvenir (skins only)
+    // Wear (skins only)
     let wearCat = '', wearCatZh = '';
     if (rType === 'skin') {
       const w = getWearCategory(paintWear);
       wearCat = w.name; wearCatZh = w.nameZh;
-      isStatTrak = quality === 9;
-      isSouvenir = quality === 12;
     }
 
     // Extra JSON (stickers on the item)

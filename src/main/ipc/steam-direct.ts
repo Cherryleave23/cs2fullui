@@ -97,6 +97,20 @@ function bindEvents(c: any, g: any, accountName: string): void {
             const raw = loose[i];
             console.log(`[SteamDirect] Raw[${i}]: id=${raw.id} def=${raw.def_index} paint=${raw.paint_index} rarity=${raw.rarity} quality=${raw.quality} stickers=${raw.stickers?.length || 0}`);
           }
+          // One-time sample: quality distribution
+          if (!(globalThis as any)._qualityLogged) {
+            (globalThis as any)._qualityLogged = true;
+            const qCounts: Record<number, number> = {};
+            for (const raw of loose) {
+              const q = raw.quality ?? 0;
+              qCounts[q] = (qCounts[q] || 0) + 1;
+            }
+            console.log(`[SteamDirect] Quality distribution: ${JSON.stringify(qCounts)}`);
+            const stSample = loose.filter((i: any) => i.quality === 9).slice(0, 3);
+            const svSample = loose.filter((i: any) => i.quality === 12).slice(0, 3);
+            for (const s of stSample) console.log(`[SteamDirect] ST sample: id=${s.id} def=${s.def_index} paint=${s.paint_index} quality=${s.quality}`);
+            for (const s of svSample) console.log(`[SteamDirect] SV sample: id=${s.id} def=${s.def_index} paint=${s.paint_index} quality=${s.quality}`);
+          }
           const resolved = csgoResolver.resolveAll(loose);
           // Sample: log first 3 resolved items
           for (let i = 0; i < Math.min(3, resolved.length); i++) {
