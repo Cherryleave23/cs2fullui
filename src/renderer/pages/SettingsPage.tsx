@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Tabs, Typography, Button, Input, Form, message, Descriptions, Tag, Space, Alert } from 'antd';
+import { Card, Tabs, Typography, Button, Input, Form, message, Descriptions, Tag, Space, Alert, Divider } from 'antd';
 import {
   UserOutlined, LockOutlined, GlobalOutlined, DatabaseOutlined,
   BgColorsOutlined, InfoCircleOutlined, SaveOutlined,
@@ -7,7 +7,7 @@ import {
 } from '@ant-design/icons';
 const { Title, Paragraph, Text } = Typography;
 
-// ── Minimal Steam login — per tech reference, no DB, no multi-account ──
+// ── Minimal Steam login — token persistence per tech reference ──
 const MinimalLogin: React.FC = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -16,6 +16,14 @@ const MinimalLogin: React.FC = () => {
   const [guardCooldown, setGuardCooldown] = useState(0);
   const [steamId, setSteamId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedAccounts, setSavedAccounts] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Load saved accounts for one-click token login
+    (window.electronAPI as any).steamListSaved?.().then((list: any[]) => {
+      if (list) setSavedAccounts(list);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unsub = (window.electronAPI as any).onSteamLog?.((d: any) => {
@@ -41,6 +49,16 @@ const MinimalLogin: React.FC = () => {
     });
     return () => unsub?.();
   }, []);
+
+  // One-click token login (no password needed)
+  const handleTokenLogin = (account: any) => {
+    setLoading(true);
+    setError(null);
+    (window.electronAPI as any).steamLogin({
+      accountName: account.accountName,
+      password: '', // empty — token will be used (or guard needed)
+    });
+  };
 
   const handleLogin = async () => {
     const v = await form.validateFields().catch(() => null);
@@ -104,6 +122,21 @@ const MinimalLogin: React.FC = () => {
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {error && <Alert type="error" message={error} closable onClose={() => setError(null)} showIcon />}
+
+      {savedAccounts.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>已保存账号 (Token免密免验证):</Text>
+          {savedAccounts.map((a: any) => (
+            <Button key={a.steamId} size="small" type={a.isActive ? 'primary' : 'default'}
+              onClick={() => handleTokenLogin(a)} disabled={loading}
+              style={{ margin: '2px 4px 2px 0' }}>
+              {a.nickname || a.accountName}{a.hasToken ? ' 🔑' : ''}{a.isActive ? ' ✓' : ''}
+            </Button>
+          ))}
+          <Divider style={{ margin: '8px 0' }} />
+        </div>
+      )}
+
       <Form form={form} layout="vertical" requiredMark={false}>
         <Form.Item name="accountName" label="Steam 账号" rules={[{ required: true }]}>
           <Input prefix={<UserOutlined />} placeholder="Steam 登录账号" size="large" />

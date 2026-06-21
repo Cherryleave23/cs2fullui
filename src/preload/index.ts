@@ -93,11 +93,12 @@ const electronAPI = {
     openLogsDir: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_LOGS_DIR),
   },
 
-  // ── Direct Steam login (minimal) ──
-  steamLogin: (params: { accountName: string; password: string; proxyUrl?: string }) =>
+  // ── Direct Steam login + token persistence ──
+  steamLogin: (params: { accountName: string; password: string; proxyUrl?: string; nickname?: string }) =>
     ipcRenderer.invoke('steam:login', params),
   steamGuard: (params: { code: string }) =>
     ipcRenderer.invoke('steam:guard', params),
+  steamListSaved: () => ipcRenderer.invoke('steam:list-saved'),
   onSteamLog: (callback: (data: unknown) => void) => {
     const handler = (_event: any, data: unknown) => callback(data);
     ipcRenderer.on('push:steam-log', handler);
