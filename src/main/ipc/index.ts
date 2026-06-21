@@ -1,13 +1,16 @@
 import { ipcMain, shell } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import { accountManager } from '../services/account-manager';
 import { registerAuthIpc } from './auth.ipc';
 import { registerInventoryIpc } from './inventory.ipc';
 import { registerTradeUpIpc } from './tradeup.ipc';
 import { registerRecipeIpc } from './recipe.ipc';
 import { registerPriceIpc } from './price.ipc';
+import { registerSteamDirect } from './steam-direct';
+import { accountManager } from '../services/account-manager';
 
 export function registerAllIpcHandlers(): void {
+  // Minimal Steam login — direct, per tech reference
+  registerSteamDirect();
   // ── App ──
   ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => '1.0.0');
   ipcMain.handle(IPC_CHANNELS.APP_OPEN_DATA_DIR, () => {

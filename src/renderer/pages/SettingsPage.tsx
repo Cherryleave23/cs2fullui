@@ -1,31 +1,126 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Tabs, Typography, Button, Input, Form, message, Descriptions, Tag, Space } from 'antd';
+import { Card, Tabs, Typography, Button, Input, Form, message, Descriptions, Tag, Space, Alert } from 'antd';
 import {
-  UserOutlined,
-  GlobalOutlined,
-  DatabaseOutlined,
-  BgColorsOutlined,
-  InfoCircleOutlined,
-  LogoutOutlined,
-  SaveOutlined,
-  CheckCircleOutlined,
-  WarningOutlined,
+  UserOutlined, LockOutlined, GlobalOutlined, DatabaseOutlined,
+  BgColorsOutlined, InfoCircleOutlined, SaveOutlined,
+  CheckCircleOutlined, WarningOutlined, KeyOutlined,
 } from '@ant-design/icons';
-import LoginForm from '../components/auth/LoginForm';
-import { useAuthStore } from '../stores/useAuthStore';
-
 const { Title, Paragraph, Text } = Typography;
 
+// ── Minimal Steam login — per tech reference, no DB, no multi-account ──
+const MinimalLogin: React.FC = () => {
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<'idle' | 'guard'>('idle');
+  const [guardCode, setGuardCode] = useState('');
+  const [guardCooldown, setGuardCooldown] = useState(0);
+  const [steamId, setSteamId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = (window.electronAPI as any).onSteamLog?.((d: any) => {
+      if (d.type === 'guard') {
+        setStep('guard');
+        if (d.lastWrong) {
+          setGuardCooldown(d.cooldown || 30);
+          const t = setInterval(() => setGuardCooldown(c => {
+            if (c <= 1) { clearInterval(t); return 0; } return c - 1;
+          }), 1000);
+        }
+      } else if (d.type === 'logged-in') {
+        setSteamId(d.steamId);
+        setStep('idle');
+        setLoading(false);
+      } else if (d.type === 'error') {
+        setError(d.message);
+        setStep('idle');
+        setLoading(false);
+      }
+    });
+    return () => unsub?.();
+  }, []);
+
+  const handleLogin = async () => {
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
+    setLoading(true);
+    setError(null);
+    (window.electronAPI as any).steamLogin({
+      accountName: v.accountName,
+      password: v.password,
+      proxyUrl: v.proxyUrl || undefined,
+    });
+  };
+
+  const handleGuard = () => {
+    if (!guardCode || guardCooldown > 0) return;
+    (window.electronAPI as any).steamGuard({ code: guardCode });
+  };
+
+  if (steamId) {
+    return (
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Alert type="success" message={`已登录 Steam — ID: ${steamId}`} showIcon />
+        <Button onClick={() => { setSteamId(null); setStep('idle'); }}>登出</Button>
+      </Space>
+    );
+  }
+
+  if (step === 'guard') {
+    return (
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Alert
+          type={guardCooldown > 0 ? 'error' : 'info'}
+          message={guardCooldown > 0
+            ? `验证码错误 — 等待 ${guardCooldown}s 后再试`
+            : '需要 Steam Guard 验证'}
+          showIcon
+        />
+        <Input
+          prefix={<KeyOutlined />}
+          value={guardCode}
+          onChange={e => setGuardCode(e.target.value.toUpperCase())}
+          onPressEnter={handleGuard}
+          maxLength={5} autoFocus
+          disabled={guardCooldown > 0}
+        />
+        <Button type="primary" block
+          disabled={guardCode.length < 5 || guardCooldown > 0}
+          onClick={handleGuard}>
+          {guardCooldown > 0 ? `等待 ${guardCooldown}s` : '提交验证码'}
+        </Button>
+      </Space>
+    );
+  }
+
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      {error && <Alert type="error" message={error} closable onClose={() => setError(null)} showIcon />}
+      <Form form={form} layout="vertical" requiredMark={false}>
+        <Form.Item name="accountName" label="Steam 账号" rules={[{ required: true }]}>
+          <Input prefix={<UserOutlined />} placeholder="Steam 登录账号" size="large" />
+        </Form.Item>
+        <Form.Item name="password" label="密码" rules={[{ required: true }]}>
+          <Input.Password prefix={<LockOutlined />} placeholder="Steam 密码" size="large" />
+        </Form.Item>
+        <Form.Item name="proxyUrl" label="代理 (可选)">
+          <Input prefix={<GlobalOutlined />} placeholder="socks5://127.0.0.1:10808" />
+        </Form.Item>
+        <Button type="primary" block size="large" loading={loading} onClick={handleLogin}>
+          {loading ? '登录中...' : '登录 Steam'}
+        </Button>
+      </Form>
+    </Space>
+  );
+};
+
 const SettingsPage: React.FC = () => {
-  const { status, steamId, accountName, reset } = useAuthStore();
   const [proxyForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [dataStatus, setDataStatus] = useState<{ csgoapiDownloaded: boolean; csgoapiLang: string }>({
     csgoapiDownloaded: false,
     csgoapiLang: '',
   });
-
-  const isLoggedIn = status === 'logged_in' || status === 'gc_ready';
 
   useEffect(() => {
     window.electronAPI.auth.getProxyConfig().then((c: any) => {
@@ -35,12 +130,6 @@ const SettingsPage: React.FC = () => {
       if (s) setDataStatus(s);
     });
   }, []);
-
-  const handleLogout = async () => {
-    await window.electronAPI.auth.logout();
-    reset();
-    message.success('已登出');
-  };
 
   const handleSaveProxy = async () => {
     const values = await proxyForm.validateFields();
@@ -52,24 +141,7 @@ const SettingsPage: React.FC = () => {
 
   const accountTab = (
     <Card bordered={false}>
-      {isLoggedIn ? (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Descriptions column={2} bordered size="small">
-            <Descriptions.Item label="Steam ID">
-              <Text code>{steamId}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="账号">{accountName}</Descriptions.Item>
-            <Descriptions.Item label="CS2 GC 状态" span={2}>
-              <Tag color={status === 'gc_ready' ? 'green' : 'orange'}>
-                {status === 'gc_ready' ? '已连接' : '连接中...'}
-              </Tag>
-            </Descriptions.Item>
-          </Descriptions>
-          <Button danger icon={<LogoutOutlined />} onClick={handleLogout}>登出</Button>
-        </Space>
-      ) : (
-        <LoginForm />
-      )}
+      <MinimalLogin />
     </Card>
   );
 

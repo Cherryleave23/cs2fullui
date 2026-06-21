@@ -93,34 +93,45 @@ const electronAPI = {
     openLogsDir: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_LOGS_DIR),
   },
 
+  // ── Direct Steam login (minimal) ──
+  steamLogin: (params: { accountName: string; password: string; proxyUrl?: string }) =>
+    ipcRenderer.invoke('steam:login', params),
+  steamGuard: (params: { code: string }) =>
+    ipcRenderer.invoke('steam:guard', params),
+  onSteamLog: (callback: (data: unknown) => void) => {
+    const handler = (_event: any, data: unknown) => callback(data);
+    ipcRenderer.on('push:steam-log', handler);
+    return () => ipcRenderer.removeListener('push:steam-log', handler);
+  },
+
   // ── Event Subscriptions (returns unsubscribe function) ──
   onSteamStatus: (callback: (status: unknown) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
+    const handler = (_event: any, status: unknown) => callback(status);
     ipcRenderer.on(IPC_CHANNELS.PUSH_STEAM_STATUS, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PUSH_STEAM_STATUS, handler);
   },
   onGcStatus: (callback: (status: unknown) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
+    const handler = (_event: any, status: unknown) => callback(status);
     ipcRenderer.on(IPC_CHANNELS.PUSH_GC_STATUS, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PUSH_GC_STATUS, handler);
   },
   onItemChanged: (callback: (item: unknown) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, item: unknown) => callback(item);
+    const handler = (_event: any, item: unknown) => callback(item);
     ipcRenderer.on(IPC_CHANNELS.PUSH_ITEM_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PUSH_ITEM_CHANGED, handler);
   },
   onItemRemoved: (callback: (assetId: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, assetId: string) => callback(assetId);
+    const handler = (_event: any, assetId: string) => callback(assetId);
     ipcRenderer.on(IPC_CHANNELS.PUSH_ITEM_REMOVED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PUSH_ITEM_REMOVED, handler);
   },
   onCraftComplete: (callback: (result: unknown) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, result: unknown) => callback(result);
+    const handler = (_event: any, result: unknown) => callback(result);
     ipcRenderer.on(IPC_CHANNELS.PUSH_CRAFT_COMPLETE, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PUSH_CRAFT_COMPLETE, handler);
   },
   onPriceUpdated: (callback: (data: unknown[]) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: unknown[]) => callback(data);
+    const handler = (_event: any, data: unknown[]) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.PUSH_PRICE_UPDATED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PUSH_PRICE_UPDATED, handler);
   },
