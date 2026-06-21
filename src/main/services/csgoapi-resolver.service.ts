@@ -61,9 +61,16 @@ class CsgoapiResolver {
         const entry = item as any;
         const type = key.split('-')[0];
 
-        // Skin: key = paint_index|weapon_id  (paint_index is STRING in all.json)
+        // Skin: key = paint_index|weapon_id
+        // Multiple variants exist (wear/ST/SV). Prefer the base (non-ST, non-SV) entry.
         if (type === 'skin' && entry.paint_index && entry.weapon?.weapon_id) {
-          this.skinByKey.set(`${entry.paint_index}|${entry.weapon.weapon_id}`, entry);
+          const skinKey = `${entry.paint_index}|${entry.weapon.weapon_id}`;
+          const existing = this.skinByKey.get(skinKey);
+          // Prefer non-Souvenir, non-StatTrak base variant
+          const isSpecial = entry.souvenir || entry.stattrak;
+          if (!existing || (!isSpecial && (existing.souvenir || existing.stattrak))) {
+            this.skinByKey.set(skinKey, entry);
+          }
           KNOWN_WEAPON_IDS.add(entry.weapon.weapon_id);
           skinCount++;
         }
