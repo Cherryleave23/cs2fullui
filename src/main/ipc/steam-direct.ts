@@ -58,13 +58,14 @@ function bindEvents(c: any, g: any, accountName: string): void {
   });
 
   c.on('disconnected', (eresult: number, msg: string) => {
+    // steam-user disconnects are NORMAL (CM server rotation).
+    // autoRelogin:true handles reconnection automatically.
+    // Do NOT destroy — only clear token on expiry.
     console.log(`[SteamDirect] Disconnected: ${msg} (${eresult})`);
     if (eresult === 84 || eresult === 63) {
       const steamId = c.steamID?.getSteamID64?.();
       try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
     }
-    send({ type: 'error', message: `断开: ${msg}` });
-    destroy();
   });
 
   c.on('error', (err: any) => {

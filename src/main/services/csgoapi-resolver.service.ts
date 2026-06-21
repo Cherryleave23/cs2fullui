@@ -42,11 +42,12 @@ class CsgoapiResolver {
 
     const dataDir = join(app.getPath('userData'), '..', '..', 'data');
     // Try project-relative path first, then userData
-    const paths = [
-      join(process.cwd(), 'data', 'all.json'),
-      join(process.cwd(), 'data', 'csgoapi', 'all.json'),
-      join(process.cwd(), 'resources', 'app.asar.unpacked', 'data', 'all.json'),
-    ];
+    const basePaths = [process.cwd(), app.getAppPath()];
+    const paths: string[] = [];
+    for (const base of basePaths) {
+      paths.push(join(base, 'data', 'all.json'));
+      paths.push(join(base, 'data', 'csgoapi', 'all.json'));
+    }
 
     let allPath = '';
     for (const p of paths) {
