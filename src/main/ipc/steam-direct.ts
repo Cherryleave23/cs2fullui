@@ -1,11 +1,5 @@
 /**
  * steam-direct — Steam login + token persistence per tech reference.
- *
- * Tech reference "Login + Token 持久化" pattern:
- *   savedToken ? client.logOn({ refreshToken, steamID })
- *              : client.logOn({ accountName, password })
- *   client.on('refreshToken', (token) => saveToken(name, token))
- *   client.on('disconnected', (eresult) => { if (eresult === 84) deleteToken })
  */
 import { ipcMain, BrowserWindow } from 'electron';
 import SteamUser from 'steam-user';
@@ -18,20 +12,128 @@ let guardCallback: ((code: string) => void) | null = null;
 let loginTimer: ReturnType<typeof setTimeout> | null = null;
 let currentAccountName = '';
 
-function win() { return BrowserWindow.getAllWindows()[0]; }
-function send(data: unknown) { win()?.webContents.send('push:steam-log', data); }
+function w() { return BrowserWindow.getAllWindows()[0]; }
+function send(data: unknown) { w()?.webContents.send('push:steam-log', data); }
 
 function destroy() {
   if (loginTimer) { clearTimeout(loginTimer); loginTimer = null; }
-  if (client) { try { client.removeAllListeners(); } catch (_) { /* ignore */ } client = null; }
-  if (csgo) { try { csgo.removeAllListeners(); } catch (_) { /* ignore */ } csgo = null; }
+  if (client) { try { client.removeAllListeners(); } catch (_) {} client = null; }
+  if (csgo) { try { csgo.removeAllListeners(); } catch (_) {} csgo = null; }
   guardCallback = null;
 }
 
+/** Shared event bindings — used by both login and auto-login */
+function bindEvents(c: any, g: any, accountName: string): void {
+  c.on('loggedOn', () => {
+    if (loginTimer) clearTimeout(loginTimer);
+    const steamId = c.steamID?.getSteamID64?.();
+    console.log(`[SteamDirect] Logged on: ${steamId}`);
+    try { AccountRepo.upsert({ steamId, accountName }); } catch (_) {}
+    try { AccountRepo.setActive(steamId); } catch (_) {}
+    c.setPersona(SteamUser.EPersonaState.Online);
+    c.gamesPlayed([730]);
+    send({ type: 'logged-in', steamId, accountName });
+  });
+
+  c.on('refreshToken', (token: string) => {
+    const steamId = c.steamID?.getSteamID64?.();
+    try { if (steamId) AccountRepo.updateToken(steamId, token); } catch (_) {}
+    send({ type: 'token-saved' });
+  });
+
+  c.on('machineAuthToken', (token: string) => {
+    const steamId = c.steamID?.getSteamID64?.();
+    try { if (steamId) AccountRepo.updateMachineToken(steamId, token); } catch (_) {}
+  });
+
+  c.on('steamGuard', (domain: string | null, cb: (code: string) => void, lastWrong: boolean) => {
+    console.log(`[SteamDirect] Guard domain:${domain} wrong:${lastWrong}`);
+    if (lastWrong) {
+      send({ type: 'guard', lastWrong: true, cooldown: 30, domain });
+      setTimeout(() => { guardCallback = cb; send({ type: 'guard', lastWrong: false, cooldown: 0, domain }); }, 30000);
+    } else {
+      guardCallback = cb;
+      send({ type: 'guard', lastWrong: false, cooldown: 0, domain });
+    }
+  });
+
+  c.on('disconnected', (eresult: number, msg: string) => {
+    console.log(`[SteamDirect] Disconnected: ${msg} (${eresult})`);
+    if (eresult === 84 || eresult === 63) {
+      const steamId = c.steamID?.getSteamID64?.();
+      try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
+    }
+    send({ type: 'error', message: `断开: ${msg}` });
+    destroy();
+  });
+
+  c.on('error', (err: any) => {
+    console.error(`[SteamDirect] Error: ${err.message}`);
+    if (err.eresult === 84) {
+      const steamId = c.steamID?.getSteamID64?.();
+      try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
+    }
+    send({ type: 'error', message: err.message });
+    destroy();
+  });
+
+  if (g) {
+    g.on('connectedToGC', () => {
+      const rawCount = g.inventory?.length || 0;
+      console.log(`[SteamDirect] GC ready — ${rawCount} items`);
+      try {
+        const { csgoResolver } = require('../services/csgoapi-resolver.service');
+        const { InventoryRepo } = require('../db/repositories/inventory.repo');
+        if (csgoResolver.load() && g.inventory) {
+          const loose = g.inventory.filter((i: any) => !i.casket_id);
+          const resolved = csgoResolver.resolveAll(loose);
+          InventoryRepo.clearAll();
+          for (const item of resolved) InventoryRepo.upsertItem(item);
+          console.log(`[SteamDirect] Synced ${resolved.length} items`);
+          send({ type: 'inventory-synced', count: resolved.length });
+        } else {
+          send({ type: 'gc-ready', itemCount: rawCount });
+        }
+      } catch (err: any) {
+        send({ type: 'gc-ready', itemCount: rawCount, error: err.message });
+      }
+    });
+  }
+}
+
 export function registerSteamDirect(): void {
-  // ═══════════════════════════════════════
-  //  LIST SAVED ACCOUNTS
-  // ═══════════════════════════════════════
+  // ═══════════════════════════════════
+  //  AUTO-LOGIN on startup
+  // ═══════════════════════════════════
+  ipcMain.handle('steam:auto-login', async () => {
+    try {
+      const accounts = AccountRepo.getAll();
+      const active = accounts.find(a => a.is_active === 1 && a.refresh_token);
+      if (!active) return { success: false, error: 'No saved active account' };
+
+      destroy();
+      currentAccountName = active.account_name;
+      client = new SteamUser({ enablePicsCache: true, changelistUpdateInterval: 60000, webCompatibilityMode: true });
+      if (active.proxy_url) {
+        Object.assign(client.options, active.proxy_url.startsWith('socks')
+          ? { socksProxy: active.proxy_url } : { httpProxy: active.proxy_url });
+      }
+      csgo = new GlobalOffensive(client);
+      bindEvents(client, csgo, active.account_name);
+
+      console.log(`[SteamDirect] Auto-login token: ${active.account_name}`);
+      return new Promise((resolve) => {
+        loginTimer = setTimeout(() => resolve({ success: false, error: 'timeout' }), 30000);
+        client.on('loggedOn', () => { clearTimeout(loginTimer!); resolve({ success: true, steamId: client.steamID?.getSteamID64?.() }); });
+        client.on('error', (err: any) => { clearTimeout(loginTimer!); resolve({ success: false, error: err.message }); });
+        client.logOn({ refreshToken: active.refresh_token!, steamID: active.steam_id });
+      });
+    } catch (err: any) { return { success: false, error: err.message }; }
+  });
+
+  // ═══════════════════════════════════
+  //  LIST SAVED
+  // ═══════════════════════════════════
   ipcMain.handle('steam:list-saved', async () => {
     try {
       return AccountRepo.getAll().map(a => ({
@@ -42,9 +144,9 @@ export function registerSteamDirect(): void {
     } catch (_) { return []; }
   });
 
-  // ═══════════════════════════════════════
-  //  LOGIN — token-first per tech reference
-  // ═══════════════════════════════════════
+  // ═══════════════════════════════════
+  //  LOGIN
+  // ═══════════════════════════════════
   ipcMain.handle('steam:login', async (_e, params: {
     accountName: string; password: string; proxyUrl?: string; nickname?: string;
   }) => {
@@ -52,149 +154,30 @@ export function registerSteamDirect(): void {
       destroy();
       currentAccountName = params.accountName;
 
-      // ── 1. SteamUser + GlobalOffensive ──
-      client = new SteamUser({
-        enablePicsCache: true,
-        changelistUpdateInterval: 60000,
-        webCompatibilityMode: true,
-      });
-
+      client = new SteamUser({ enablePicsCache: true, changelistUpdateInterval: 60000, webCompatibilityMode: true, autoRelogin: true });
       if (params.proxyUrl) {
-        if (params.proxyUrl.startsWith('socks')) {
-          Object.assign(client.options, { socksProxy: params.proxyUrl });
-        } else {
-          Object.assign(client.options, { httpProxy: params.proxyUrl });
-        }
+        Object.assign(client.options, params.proxyUrl.startsWith('socks')
+          ? { socksProxy: params.proxyUrl } : { httpProxy: params.proxyUrl });
       }
-
       csgo = new GlobalOffensive(client);
+      bindEvents(client, csgo, params.accountName);
 
-      // ═══════════════════════════════════
-      //  EVENTS — exactly per tech reference
-      // ═══════════════════════════════════
-
-      // loggedOn
-      client.on('loggedOn', () => {
-        if (loginTimer) clearTimeout(loginTimer);
-        const steamId = client.steamID?.getSteamID64?.();
-        console.log(`[SteamDirect] Logged on: ${steamId}`);
-
-        // Persist account (non-blocking — DB errors don't affect login)
-        try { AccountRepo.upsert({ steamId, accountName: currentAccountName, nickname: params.nickname || currentAccountName, proxyUrl: params.proxyUrl || undefined }); } catch (_) {}
-        try { AccountRepo.setActive(steamId); } catch (_) {}
-
-        client.setPersona(SteamUser.EPersonaState.Online);
-        client.gamesPlayed([730]);
-        send({ type: 'logged-in', steamId, accountName: currentAccountName });
-      });
-
-      // refreshToken — persist (non-blocking)
-      client.on('refreshToken', (token: string) => {
-        const steamId = client.steamID?.getSteamID64?.();
-        try { if (steamId) AccountRepo.updateToken(steamId, token); } catch (_) {}
-        send({ type: 'token-saved' });
-      });
-
-      // machineAuthToken
-      client.on('machineAuthToken', (token: string) => {
-        const steamId = client.steamID?.getSteamID64?.();
-        try { if (steamId) AccountRepo.updateMachineToken(steamId, token); } catch (_) {}
-      });
-
-      // steamGuard — 30s cooldown on wrong code
-      client.on('steamGuard', (
-        domain: string | null,
-        cb: (code: string) => void,
-        lastWrong: boolean,
-      ) => {
-        console.log(`[SteamDirect] Guard — domain:${domain} lastWrong:${lastWrong}`);
-        if (lastWrong) {
-          send({ type: 'guard', lastWrong: true, cooldown: 30, domain });
-          setTimeout(() => {
-            guardCallback = cb;
-            send({ type: 'guard', lastWrong: false, cooldown: 0, domain });
-          }, 30000);
-        } else {
-          guardCallback = cb;
-          send({ type: 'guard', lastWrong: false, cooldown: 0, domain });
-        }
-      });
-
-      // disconnected — clear token if expired (non-blocking)
-      client.on('disconnected', (eresult: number, msg: string) => {
-        console.log(`[SteamDirect] Disconnected: ${msg} (${eresult})`);
-        if (eresult === 84 || eresult === 63) {
-          const steamId = client.steamID?.getSteamID64?.();
-          try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
-        }
-        send({ type: 'error', message: `断开: ${msg}` });
-        destroy();
-      });
-
-      // error
-      client.on('error', (err: any) => {
-        console.error(`[SteamDirect] Error: ${err.message}`);
-        if (err.eresult === 84) {
-          const steamId = client.steamID?.getSteamID64?.();
-          try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
-        }
-        send({ type: 'error', message: err.message });
-        destroy();
-      });
-
-      // GC + inventory sync
-      if (csgo) {
-        csgo.on('connectedToGC', () => {
-          const rawCount = csgo.inventory?.length || 0;
-          console.log(`[SteamDirect] GC ready — ${rawCount} items`);
-          try {
-            const { csgoResolver } = require('../services/csgoapi-resolver.service');
-            const { InventoryRepo } = require('../db/repositories/inventory.repo');
-            if (csgoResolver.load() && csgo.inventory) {
-              const looseItems = csgo.inventory.filter((i: any) => !i.casket_id);
-              const resolved = csgoResolver.resolveAll(looseItems);
-              InventoryRepo.clearAll();
-              for (const item of resolved) InventoryRepo.upsertItem(item);
-              console.log(`[SteamDirect] Synced ${resolved.length} items`);
-              send({ type: 'inventory-synced', count: resolved.length });
-            } else {
-              send({ type: 'gc-ready', itemCount: rawCount, note: 'resolver not loaded' });
-            }
-          } catch (err: any) {
-            send({ type: 'gc-ready', itemCount: rawCount, error: err.message });
-          }
-        });
-      }
-
-      // ═══════════════════════════════════
-      //  LOG ON — token-first strategy
-      // ═══════════════════════════════════
       return new Promise((resolve) => {
         loginTimer = setTimeout(() => {
-          send({ type: 'error', message: '登录超时 (30s)' });
-          resolve({ success: false, error: 'Login timeout' });
-        }, 30000);
+          send({ type: 'error', message: '连接 Steam 超时 (60s) — 请检查网络或代理' });
+          resolve({ success: false, error: 'timeout' });
+        }, 60000);
 
-        client.on('loggedOn', () => {
-          if (loginTimer) clearTimeout(loginTimer);
-          resolve({ success: true, steamId: client.steamID?.getSteamID64?.() });
-        });
-        client.on('error', (err: any) => {
-          if (loginTimer) clearTimeout(loginTimer);
-          resolve({ success: false, error: err.message });
-        });
-        client.on('disconnected', (eresult: number, msg: string) => {
-          if (loginTimer) clearTimeout(loginTimer);
-          resolve({ success: false, error: `断开: ${msg} (${eresult})` });
-        });
+        client.on('loggedOn', () => { clearTimeout(loginTimer!); resolve({ success: true, steamId: client.steamID?.getSteamID64?.() }); });
+        client.on('error', (err: any) => { clearTimeout(loginTimer!); resolve({ success: false, error: err.message }); });
+        client.on('disconnected', (eresult: number, msg: string) => { clearTimeout(loginTimer!); resolve({ success: false, error: `${msg} (${eresult})` }); });
 
-        // ── Token-first: check DB for saved token (non-blocking) ──
-        let savedToken: string | null = null;
-        let savedSteamId: string | null = null;
+        // Token-first
+        let savedToken: string | null = null, savedSteamId: string | null = null;
         try {
           const saved = AccountRepo.getAll().find(a => a.account_name === params.accountName);
           if (saved?.refresh_token) { savedToken = saved.refresh_token; savedSteamId = saved.steam_id; }
-        } catch (_) { /* DB unavailable — fall through to password */ }
+        } catch (_) {}
 
         if (savedToken && savedSteamId) {
           console.log(`[SteamDirect] Token login: ${params.accountName}`);
@@ -204,19 +187,15 @@ export function registerSteamDirect(): void {
           client.logOn({ accountName: params.accountName, password: params.password });
         }
       });
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
+    } catch (err: any) { return { success: false, error: err.message }; }
   });
 
-  // ═══════════════════════════════════════
-  //  SUBMIT GUARD CODE
-  // ═══════════════════════════════════════
+  // ═══════════════════════════════════
+  //  GUARD
+  // ═══════════════════════════════════
   ipcMain.handle('steam:guard', async (_e, params: { code: string }) => {
-    if (!guardCallback) return { success: false, error: '没有待处理的 Steam Guard 验证' };
-    const cb = guardCallback;
-    guardCallback = null;
-    cb(params.code);
+    if (!guardCallback) return { success: false, error: 'No pending guard' };
+    const cb = guardCallback; guardCallback = null; cb(params.code);
     return { success: true };
   });
 }

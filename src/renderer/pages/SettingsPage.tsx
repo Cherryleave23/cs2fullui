@@ -17,12 +17,15 @@ const MinimalLogin: React.FC = () => {
   const [steamId, setSteamId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedAccounts, setSavedAccounts] = useState<any[]>([]);
+  const [gcReady, setGcReady] = useState(false);
+  const [invCount, setInvCount] = useState(0);
 
   useEffect(() => {
-    // Load saved accounts for one-click token login
     (window.electronAPI as any).steamListSaved?.().then((list: any[]) => {
       if (list) setSavedAccounts(list);
     }).catch(() => {});
+    // Auto-relogin on startup if saved account has token
+    (window.electronAPI as any).steamAutoLogin?.().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -39,6 +42,9 @@ const MinimalLogin: React.FC = () => {
         setSteamId(d.steamId);
         setStep('idle');
         setLoading(false);
+      } else if (d.type === 'gc-ready' || d.type === 'inventory-synced') {
+        setGcReady(true);
+        if (d.count) setInvCount(d.count);
       } else if (d.type === 'error') {
         setError(d.message);
         setStep('idle');
@@ -86,8 +92,11 @@ const MinimalLogin: React.FC = () => {
   if (steamId) {
     return (
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Alert type="success" message={`已登录 Steam — ID: ${steamId}`} showIcon />
-        <Button onClick={() => { setSteamId(null); setStep('idle'); }}>登出</Button>
+        <Alert type="success" message={`Steam 已登录 — ID: ${steamId}`} showIcon />
+        <Alert type={gcReady ? 'success' : 'warning'}
+          message={gcReady ? `CS2 GC 已连接 — 库存 ${invCount} 件` : 'CS2 GC 连接中...'}
+          showIcon />
+        <Button onClick={() => { setSteamId(null); setGcReady(false); setStep('idle'); }}>登出</Button>
       </Space>
     );
   }
