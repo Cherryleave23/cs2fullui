@@ -35,6 +35,8 @@ const MinimalLogin: React.FC = () => {
         setError(d.message);
         setStep('idle');
         setLoading(false);
+      } else if (d.type === 'inventory-synced') {
+        console.log(`Inventory synced: ${d.count} items`);
       }
     });
     return () => unsub?.();
@@ -45,11 +47,17 @@ const MinimalLogin: React.FC = () => {
     if (!v) return;
     setLoading(true);
     setError(null);
-    (window.electronAPI as any).steamLogin({
+    // Fire-and-forget — push events handle state changes
+    const result = await (window.electronAPI as any).steamLogin({
       accountName: v.accountName,
       password: v.password,
       proxyUrl: v.proxyUrl || undefined,
-    });
+    }).catch((err: any) => ({ success: false, error: err.message || 'IPC error' }));
+    // If result came back synchronously (error before events fired)
+    if (result && !result.success) {
+      setError(result.error || 'Login failed');
+      setLoading(false);
+    }
   };
 
   const handleGuard = () => {
