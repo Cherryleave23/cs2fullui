@@ -19,9 +19,12 @@ export function registerRecipeIpc(): void {
     // Enrich items with real skin names
     const enriched = items.map(i => {
       const skin = csgoResolver.resolveSkinByKey(i.paint_index, i.weapon_id);
+      // Strip wear suffix for display (actual wear is shown separately)
+      const rawName = skin?.nameZh || skin?.name || `#${i.paint_index}|${i.weapon_id}`;
+      const displayName = rawName.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
       return {
         ...i,
-        skinName: skin?.nameZh || skin?.name || `#${i.paint_index}|${i.weapon_id}`,
+        skinName: displayName,
         skinMinFloat: skin?.minFloat,
         skinMaxFloat: skin?.maxFloat,
         skinRarity: skin?.rarity,

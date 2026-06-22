@@ -86,14 +86,16 @@ function bindEvents(c: any, g: any, accountName: string): void {
   c.on('error', (err: any) => {
     console.error(`[SteamDirect] Error: ${err.message} (eresult=${err.eresult})`);
     const isTokenExpired = err.eresult === 84 || err.eresult === 63;
-    if (isTokenExpired) {
+    const isSessionConflict = err.eresult === 6; // LoggedInElsewhere
+    if (isTokenExpired || isSessionConflict) {
       const steamId = c.steamID?.getSteamID64?.();
       try { if (steamId) AccountRepo.upsert({ steamId, accountName, refreshToken: '' }); } catch (_) {}
     }
-    // Only destroy on truly fatal errors, not recoverable ones
-    if (isTokenExpired || err.eresult === 15 /* AccessDenied */ || err.eresult === 5 /* InvalidPassword */) {
-      send({ type: 'error', message: err.message });
-      destroy();
+    if (isTokenExpired || err.eresult === 15 || err.eresult === 5) {
+      send({ type: 'error', message: err.message }); destroy();
+    } else if (isSessionConflict) {
+      // LoggedInElsewhere: auto-relogin will reconnect with new session
+      console.log(`[SteamDirect] Session conflict — autoRelogin will reconnect`);
     } else {
       console.log(`[SteamDirect] Non-fatal error, keeping session alive`);
     }
@@ -275,8 +277,10 @@ export function registerSteamDirect(): void {
           const item = csgo.inventory?.find((i: any) => String(i.id) === String(id));
           if (item) {
             const resolved = csgoResolver.resolveOne(item);
+            // Strip wear suffix from name (actual wear is displayed separately)
+            const name = resolved.resolvedName.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
             gainedItems.push({
-              name: resolved.resolvedName,
+              name,
               wearFloat: resolved.paintWear,
               imageUrl: resolved.imageUrl,
               wearCategory: resolved.wearCategoryZh || '',
