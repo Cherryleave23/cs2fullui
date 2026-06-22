@@ -1,10 +1,17 @@
 import { RecipeRepo, type RecipeItemRow } from '../db/repositories/recipe.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
 import { simulateTradeUp, type SimInputItem } from './tradeup-simulator';
+import { csgoResolver } from './csgoapi-resolver.service';
 import type { ResolvedItem } from '../../shared/types/item';
 
 interface GenerationResult { success: boolean; subRecipes: SubRecipeCandidate[]; error?: string; }
 interface SubRecipeCandidate { items: ResolvedItem[]; avgWearNorm: number; normDiff: number; targetRarity: string; targetRarityZh: string; }
+
+/** Look up collection name for a paint_index|weapon_id pair */
+function getCollection(paintIndex: number, weaponId: number): string {
+  const skin = csgoResolver.resolveSkinByKey(paintIndex, weaponId);
+  return skin?.collection || '';
+}
 
 export function generateSubRecipes(parentId: number): GenerationResult {
   console.log('[AutoSub] === Starting for parent:', parentId);
@@ -15,12 +22,15 @@ export function generateSubRecipes(parentId: number): GenerationResult {
   const parentItems = RecipeRepo.getItems(parentId);
   console.log(`[AutoSub] Items: ${parentItems.length}, rarity: ${parent.rarity}, target: ${parent.target_rarity}, type: ${parent.type}`);
 
-  // Simulate parent
+  // Simulate parent — resolve real collection names from CsgoapiResolver
   const simInputs: SimInputItem[] = parentItems.map(i => ({
     name: '', rarity: parent.rarity, paintIndex: i.paint_index,
     defIndex: i.weapon_id, wearFloat: i.wear_float,
-    minFloat: 0, maxFloat: 1, collection: '', isStatTrak: false, isSouvenir: false,
+    minFloat: 0, maxFloat: 1,
+    collection: getCollection(i.paint_index, i.weapon_id),
+    isStatTrak: false, isSouvenir: false,
   }));
+  console.log('[AutoSub] Parent collections:', simInputs.map(s => s.collection).filter(Boolean).slice(0, 5));
   const parentSim = simulateTradeUp(simInputs);
   console.log(`[AutoSub] Parent sim ok=${parentSim.success} target=${parentSim.targetRarityZh} colls=${parentSim.collectionsUsed}`);
 
