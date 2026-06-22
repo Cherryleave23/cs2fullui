@@ -73,7 +73,7 @@ const TradeUpPage: React.FC = () => {
         title: '配方已存在',
         content: result.message,
         onOk: async () => {
-          await (window.electronAPI as any).recipe.replace?.({ id: result.id, recipe: {
+          await window.electronAPI.recipe.replace({ id: result.id, recipe: {
             items: filled.map((item, idx) => ({
               paintIndex: item!.paintIndex, weaponId: item!.weaponId,
               wearFloat: item!.wearFloat, assetId: item!.assetId || null,

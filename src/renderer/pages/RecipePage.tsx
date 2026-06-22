@@ -44,7 +44,7 @@ const RecipePage: React.FC = () => {
       for (let i = 0; i < Math.min(full.items.length, 10); i++) {
         const item = full.items[i];
         // Resolve real skin name from CsgoapiResolver
-        const skin: any = await (window.electronAPI as any).resolveSkin?.({
+        const skin: any = await window.electronAPI.tradeup.resolveSkin({
           paintIndex: item.paint_index, weaponId: item.weapon_id
         });
         tradeUpStore.setSlot(i, {
@@ -84,7 +84,7 @@ const RecipePage: React.FC = () => {
 
   const handleAutoSub = async (parentId: number) => {
     message.loading({ content: '正在配置子配方...', key: 'autoSub' });
-    const result: any = await (window.electronAPI as any).recipe.autoSub?.(parentId);
+    const result: any = await window.electronAPI.recipe.autoSub(parentId);
     if (result?.success) {
       message.success({ content: `已生成 ${result.subRecipes?.length || 0} 个子配方`, key: 'autoSub' });
       load();

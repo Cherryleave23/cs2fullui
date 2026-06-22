@@ -32,6 +32,8 @@ export interface ElectronAPI {
     execute(assetIds: string[], recipeIndex?: number): Promise<unknown>;
     getHistory(page?: number): Promise<unknown>;
     getHistoryItem(id: number): Promise<unknown>;
+    autocomplete(query: string): Promise<any[]>;
+    resolveSkin(params: { paintIndex: number; weaponId: number }): Promise<any>;
   };
   recipe: {
     list(): Promise<unknown[]>;
@@ -40,6 +42,8 @@ export interface ElectronAPI {
     delete(id: number): Promise<void>;
     export(id: number): Promise<string>;
     import(json: string): Promise<unknown>;
+    autoSub(parentId: number): Promise<{ success: boolean; subRecipes: any[]; error?: string }>;
+    replace(params: { id: number; recipe: any }): Promise<{ success: boolean; error?: string }>;
   };
   price: {
     fetch(marketHashNames: string[]): Promise<unknown[]>;

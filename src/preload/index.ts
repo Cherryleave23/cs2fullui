@@ -31,9 +31,6 @@ const electronAPI = {
       ipcRenderer.invoke('auth:update-nickname', params),
     deleteAccount: (steamId: string) =>
       ipcRenderer.invoke('auth:delete-account', steamId),
-    autocomplete: (query: string) => ipcRenderer.invoke('tradeup:autocomplete', query),
-    autoSub: (parentId: number) => ipcRenderer.invoke('recipe:auto-sub', parentId),
-    replace: (params: { id: number; recipe: any }) => ipcRenderer.invoke('recipe:replace', params),
   },
 
   // ── Inventory ──
@@ -57,6 +54,9 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.TRADEUP_GET_HISTORY, page),
     getHistoryItem: (id: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.TRADEUP_GET_HISTORY_ITEM, id),
+    autocomplete: (query: string) => ipcRenderer.invoke('tradeup:autocomplete', query),
+    resolveSkin: (params: { paintIndex: number; weaponId: number }) =>
+      ipcRenderer.invoke('tradeup:resolve-skin', params),
   },
 
   // ── Recipes ──
@@ -67,6 +67,8 @@ const electronAPI = {
     delete: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.RECIPE_DELETE, id),
     export: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.RECIPE_EXPORT, id),
     import: (json: string) => ipcRenderer.invoke(IPC_CHANNELS.RECIPE_IMPORT, json),
+    autoSub: (parentId: number) => ipcRenderer.invoke('recipe:auto-sub', parentId),
+    replace: (params: { id: number; recipe: any }) => ipcRenderer.invoke('recipe:replace', params),
   },
 
   // ── Prices ──

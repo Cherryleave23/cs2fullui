@@ -37,7 +37,7 @@ const AutocompleteSlot: React.FC<AutocompleteSlotProps> = ({ index }) => {
     setSearchText(value);
     if (value.length < 1) { setOptions([]); return; }
     try {
-      const results: any[] = await (window.electronAPI as any).autocomplete?.(value) || [];
+      const results: any[] = await window.electronAPI.tradeup.autocomplete(value) || [];
       const opts = results.map((s: any) => ({
         value: stripWear(s.nameZh),
         label: `${stripWear(s.nameZh)} [${s.minFloat.toFixed(2)}-${s.maxFloat.toFixed(2)}] ${s.rarity}`,
