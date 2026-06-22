@@ -15,7 +15,20 @@ export function registerRecipeIpc(): void {
   ipcMain.handle(IPC_CHANNELS.RECIPE_GET, async (_e, id: number) => {
     const recipe = RecipeRepo.getById(id);
     if (!recipe) return null;
-    return { ...recipe, items: RecipeRepo.getItems(id), children: RecipeRepo.getByParent(id) };
+    const items = RecipeRepo.getItems(id);
+    // Enrich items with real skin names
+    const enriched = items.map(i => {
+      const skin = csgoResolver.resolveSkinByKey(i.paint_index, i.weapon_id);
+      return {
+        ...i,
+        skinName: skin?.nameZh || skin?.name || `#${i.paint_index}|${i.weapon_id}`,
+        skinMinFloat: skin?.minFloat,
+        skinMaxFloat: skin?.maxFloat,
+        skinRarity: skin?.rarity,
+        skinColor: skin?.rarityColor,
+      };
+    });
+    return { ...recipe, items: enriched, children: RecipeRepo.getByParent(id) };
   });
 
   // ── Save recipe (with duplicate check) ──
