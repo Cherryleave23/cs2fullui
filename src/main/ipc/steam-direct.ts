@@ -253,23 +253,21 @@ export function registerSteamDirect(): void {
           resolve({ success: false, error: 'GC 拒绝汰换 (recipe=-1)，请检查物品稀有度是否一致' });
           return;
         }
-        // Resolve gained items using CsgoapiResolver
+        // Resolve gained items — 'gained' is item IDs, look up from inventory
         const gainedItems: any[] = [];
-        try {
-          const { csgoResolver } = require('../services/csgoapi-resolver.service');
-          for (const raw of gained) {
-            const resolved = csgoResolver.resolveOne(raw);
+        for (const id of gained) {
+          const item = csgo.inventory?.find((i: any) => String(i.id) === String(id));
+          if (item) {
+            const resolved = csgoResolver.resolveOne(item);
             gainedItems.push({
               name: resolved.resolvedName,
               wearFloat: resolved.paintWear,
               imageUrl: resolved.imageUrl,
-              wearCategory: resolved.wearCategoryZh,
-              rarity: resolved.rarityNameZh,
+              wearCategory: resolved.wearCategoryZh || '',
+              rarity: resolved.rarityNameZh || '',
             });
-          }
-        } catch (_) {
-          for (const raw of gained) {
-            gainedItems.push({ name: `Item ${raw.id || raw}`, wearFloat: 0, imageUrl: '' });
+          } else {
+            gainedItems.push({ name: `Item ${id}`, wearFloat: 0, imageUrl: '', wearCategory: '', rarity: '' });
           }
         }
         resolve({ success: true, gainedItems });
