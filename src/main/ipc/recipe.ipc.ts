@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { RecipeRepo } from '../db/repositories/recipe.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
+import { generateSubRecipes } from '../services/recipe-auto-sub.service';
 
 export function registerRecipeIpc(): void {
   // ── List all recipes (parent + children) ──
@@ -114,7 +115,6 @@ export function registerRecipeIpc(): void {
   // ── Auto-sub-recipe generation ──
   ipcMain.handle('recipe:auto-sub', async (_e, parentId: number) => {
     try {
-      const { generateSubRecipes } = require('../services/recipe-auto-sub.service');
       return generateSubRecipes(parentId);
     } catch (err: any) {
       return { success: false, error: err.message, subRecipes: [] };
