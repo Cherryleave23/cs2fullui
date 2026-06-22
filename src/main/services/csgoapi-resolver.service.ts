@@ -326,9 +326,18 @@ class CsgoapiResolver {
       }
     }
     // Now update skinByKey entries with collection names
+    // Collection skin names lack wear suffixes (e.g. "Tec-9 | 艾萨克")
+    // skinByKey entries have wear suffixes (e.g. "Tec-9 | 艾萨克 (崭新出厂)")
+    // → match by prefix
     for (const entry of this.skinByKey.values()) {
       const name = entry.name || '';
-      const collName = nameToColl.get(name);
+      // Try exact match first, then prefix match
+      let collName = nameToColl.get(name);
+      if (!collName) {
+        for (const [cName, cColl] of nameToColl) {
+          if (name.startsWith(cName)) { collName = cColl; break; }
+        }
+      }
       if (collName) {
         if (!entry.collections) entry.collections = [{ name: collName }];
       }
