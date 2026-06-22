@@ -58,6 +58,8 @@ const electronAPI = {
     resolveSkin: (params: { paintIndex: number; weaponId: number }) =>
       ipcRenderer.invoke('tradeup:resolve-skin', params),
   },
+  tradeupExecute: (params: { assetIds: string[]; recipe: number }) =>
+    ipcRenderer.invoke('steam:tradeup-execute', params),
 
   // ── Recipes ──
   recipe: {

@@ -97,34 +97,35 @@ const RecipePage: React.FC = () => {
   };
 
   // ── Execute trade-up ──
+  const RARITY_TO_RECIPE: Record<string, number> = {
+    '消费级': 0, '工业级': 1, '军规级': 2, '受限级': 3, '保密级': 4,
+  };
+
   const handleExecute = async (recipe: RecipeData) => {
     const full: any = await window.electronAPI.recipe.get(recipe.id);
     const items = full?.items || [];
     const assetIds = items.map((i: any) => i.asset_id || i.assetId).filter(Boolean);
     if (assetIds.length !== 10) {
-      message.error(`该配方只有 ${assetIds.length} 个有效物品ID，无法执行汰换（需要10个）`);
+      message.error(`只有 ${assetIds.length} 个有效ASSTID，需要10个`);
       return;
     }
+    const recipeIdx = recipe.is_stattrak
+      ? (RARITY_TO_RECIPE[recipe.rarity] ?? 2) + 10
+      : (RARITY_TO_RECIPE[recipe.rarity] ?? 2);
     Modal.confirm({
       title: '确认执行汰换交易',
-      content: `将消耗以下10件物品进行汰换，目标产出: ${recipe.target_rarity}。此操作不可撤销！`,
+      content: `消耗10件物品 → ${recipe.target_rarity}。不可撤销！`,
       okText: '确认执行',
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
-        message.loading({ content: '正在执行汰换...', key: 'exec' });
+        message.loading({ content: '执行中...', key: 'exec' });
         try {
-          const result: any = await window.electronAPI.tradeup.execute(assetIds);
-          if (result.success && result.gainedItemIds) {
-            // Resolve gained items
-            const gainedItems = [];
-            for (const id of result.gainedItemIds) {
-              const r: any = await window.electronAPI.tradeup.resolveSkin?.({ paintIndex: 0, weaponId: 0 });
-              gainedItems.push({ id, name: `Item ${id}` });
-            }
-            setExecuteResult({ success: true, items: gainedItems });
+          const result: any = await (window.electronAPI as any).tradeupExecute({ assetIds, recipe: recipeIdx });
+          if (result?.success) {
+            setExecuteResult({ success: true, items: result.gainedItems || [] });
           } else {
-            setExecuteResult({ success: false, error: result.error || '汰换失败', items: [] });
+            setExecuteResult({ success: false, error: result?.error || '汰换失败', items: [] });
           }
           message.destroy('exec');
         } catch (err: any) {

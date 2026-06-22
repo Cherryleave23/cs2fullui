@@ -230,6 +230,63 @@ export function registerSteamDirect(): void {
   });
 
   // ═══════════════════════════════════
+  //  TRADE-UP EXECUTION (per tech reference)
+  // ═══════════════════════════════════
+  ipcMain.handle('steam:tradeup-execute', async (_e, params: { assetIds: string[]; recipe: number }) => {
+    if (!csgo?.haveGCSession) return { success: false, error: 'GC 未连接' };
+    const assetIds = params.assetIds;
+    if (assetIds.length !== 10) return { success: false, error: '需要10件物品' };
+
+    // Validate items exist in inventory
+    const items = assetIds.map(id => csgo.inventory?.find((i: any) => String(i.id) === String(id))).filter(Boolean);
+    if (items.length !== 10) return { success: false, error: '部分物品未在库存中找到' };
+
+    console.log(`[SteamDirect] Executing trade-up: recipe=${params.recipe} items=${assetIds.join(',')}`);
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve({ success: false, error: '汰换超时 (15s)' }), 15000);
+
+      const handler = (recipeResult: number, gained: any[]) => {
+        clearTimeout(timeout);
+        csgo.removeListener('craftingComplete', handler);
+        if (recipeResult === -1) {
+          resolve({ success: false, error: 'GC 拒绝汰换 (recipe=-1)，请检查物品稀有度是否一致' });
+          return;
+        }
+        // Resolve gained items using CsgoapiResolver
+        const gainedItems: any[] = [];
+        try {
+          const { csgoResolver } = require('../services/csgoapi-resolver.service');
+          for (const raw of gained) {
+            const resolved = csgoResolver.resolveOne(raw);
+            gainedItems.push({
+              name: resolved.resolvedName,
+              wearFloat: resolved.paintWear,
+              imageUrl: resolved.imageUrl,
+              wearCategory: resolved.wearCategoryZh,
+              rarity: resolved.rarityNameZh,
+            });
+          }
+        } catch (_) {
+          for (const raw of gained) {
+            gainedItems.push({ name: `Item ${raw.id || raw}`, wearFloat: 0, imageUrl: '' });
+          }
+        }
+        resolve({ success: true, gainedItems });
+      };
+
+      csgo.on('craftingComplete', handler);
+      try {
+        csgo.craft(items.map((i: any) => i.id), params.recipe);
+      } catch (err: any) {
+        clearTimeout(timeout);
+        csgo.removeListener('craftingComplete', handler);
+        resolve({ success: false, error: err.message });
+      }
+    });
+  });
+
+  // ═══════════════════════════════════
   //  GUARD
   // ═══════════════════════════════════
   ipcMain.handle('steam:guard', async (_e, params: { code: string }) => {
