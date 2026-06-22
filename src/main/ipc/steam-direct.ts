@@ -29,12 +29,16 @@ function destroy() {
 
 /** Shared event bindings — used by both login and auto-login */
 function bindEvents(c: any, g: any, accountName: string): void {
+  let pendingToken: string | null = null;
+
   c.on('loggedOn', () => {
     if (loginTimer) clearTimeout(loginTimer);
     const steamId = c.steamID?.getSteamID64?.();
     console.log(`[SteamDirect] Logged on: ${steamId}`);
-    try { AccountRepo.upsert({ steamId, accountName }); } catch (_) {}
+    // Upsert with refreshToken if received (refreshToken fires before loggedOn)
+    try { AccountRepo.upsert({ steamId, accountName, refreshToken: pendingToken }); } catch (_) {}
     try { AccountRepo.setActive(steamId); } catch (_) {}
+    pendingToken = null;
     c.setPersona(SteamUser.EPersonaState.Online);
     c.gamesPlayed([730]);
     send({ type: 'logged-in', steamId, accountName });
@@ -42,13 +46,22 @@ function bindEvents(c: any, g: any, accountName: string): void {
 
   c.on('refreshToken', (token: string) => {
     const steamId = c.steamID?.getSteamID64?.();
-    try { if (steamId) AccountRepo.updateToken(steamId, token); } catch (_) {}
+    console.log(`[SteamDirect] refreshToken: steamId=${steamId} hasToken=${!!token}`);
+    if (steamId && token) {
+      try {
+        // Use upsert (not updateToken) — account may not exist in DB yet
+        AccountRepo.upsert({ steamId, accountName, refreshToken: token });
+      } catch (_) { /* ignore */ }
+    } else {
+      // steamId not available yet — store temporarily for loggedOn to save
+      pendingToken = token;
+    }
     send({ type: 'token-saved' });
   });
 
   c.on('machineAuthToken', (token: string) => {
     const steamId = c.steamID?.getSteamID64?.();
-    try { if (steamId) AccountRepo.updateMachineToken(steamId, token); } catch (_) {}
+    try { if (steamId) AccountRepo.upsert({ steamId, accountName, machineToken: token }); } catch (_) {}
   });
 
   c.on('steamGuard', (domain: string | null, cb: (code: string) => void, lastWrong: boolean) => {
@@ -63,24 +76,27 @@ function bindEvents(c: any, g: any, accountName: string): void {
   });
 
   c.on('disconnected', (eresult: number, msg: string) => {
-    // steam-user disconnects are NORMAL (CM server rotation).
-    // autoRelogin:true handles reconnection automatically.
-    // Do NOT destroy — only clear token on expiry.
     console.log(`[SteamDirect] Disconnected: ${msg} (${eresult})`);
     if (eresult === 84 || eresult === 63) {
       const steamId = c.steamID?.getSteamID64?.();
-      try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
+      try { if (steamId) AccountRepo.upsert({ steamId, accountName, refreshToken: '' }); } catch (_) {}
     }
   });
 
   c.on('error', (err: any) => {
-    console.error(`[SteamDirect] Error: ${err.message}`);
-    if (err.eresult === 84) {
+    console.error(`[SteamDirect] Error: ${err.message} (eresult=${err.eresult})`);
+    const isTokenExpired = err.eresult === 84 || err.eresult === 63;
+    if (isTokenExpired) {
       const steamId = c.steamID?.getSteamID64?.();
-      try { if (steamId) AccountRepo.updateToken(steamId, ''); } catch (_) {}
+      try { if (steamId) AccountRepo.upsert({ steamId, accountName, refreshToken: '' }); } catch (_) {}
     }
-    send({ type: 'error', message: err.message });
-    destroy();
+    // Only destroy on truly fatal errors, not recoverable ones
+    if (isTokenExpired || err.eresult === 15 /* AccessDenied */ || err.eresult === 5 /* InvalidPassword */) {
+      send({ type: 'error', message: err.message });
+      destroy();
+    } else {
+      console.log(`[SteamDirect] Non-fatal error, keeping session alive`);
+    }
   });
 
   if (g) {
