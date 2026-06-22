@@ -107,11 +107,20 @@ const RecipePage: React.FC = () => {
   const renderRecipe = (r: RecipeData, isChild = false) => {
     const hasChildren = r.children && r.children.length > 0;
     const isExpanded = isChild ? (expandedChildId === r.id) : (expandedId === r.id);
-    const toggleExpand = () => {
+    const [expandedDetails, setExpandedDetails] = useState<Record<number, any>>({});
+
+  const toggleExpand = async () => {
       if (isChild) {
         setExpandedChildId(isExpanded ? null : r.id);
       } else {
         setExpandedId(isExpanded ? null : r.id);
+      }
+      // Load full recipe data (items + outcomes) if not already loaded
+      if (!isExpanded && (!r.items || r.items.length === 0)) {
+        const full: any = await window.electronAPI.recipe.get(r.id);
+        if (full) {
+          setExpandedDetails(prev => ({ ...prev, [r.id]: full }));
+        }
       }
     };
 
@@ -156,20 +165,24 @@ const RecipePage: React.FC = () => {
         </Card>
 
         {/* Expanded: show items + outcomes + children */}
-        {isExpanded && (
+        {isExpanded && (() => {
+          const detail = expandedDetails[r.id] || {};
+          const items = detail.items || r.items || [];
+          const outcomes = detail.outcome_summary || r.outcome_summary;
+          return (
           <div style={{ marginTop: 8, marginLeft: 16, padding: 12, background: '#f9f9f9', borderRadius: 8 }}>
             {/* Recipe detail: 10 items */}
-            {r.items && r.items.length > 0 && (
+            {items.length > 0 && (
               <div style={{ marginBottom: 8 }}>
-                <Text strong style={{ fontSize: 13 }}>配方物品 ({r.items.length} 件):</Text>
+                <Text strong style={{ fontSize: 13 }}>配方物品 ({items.length} 件):</Text>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                  {r.items.map((item: any, idx: number) => (
+                  {items.map((item: any, idx: number) => (
                     <span key={idx} style={{
                       fontSize: 11, padding: '2px 6px', background: '#fff', borderRadius: 4,
                       border: '1px solid #e8e8e8',
                     }}>
                       #{idx + 1}: {item.paintIndex || item.paint_index}|{item.weaponId || item.weapon_id}
-                      <span style={{ color: '#888' }}> @{item.wearFloat?.toFixed(4) || item.wear_float?.toFixed(4)}</span>
+                      <span style={{ color: '#888' }}> @{(item.wearFloat || item.wear_float)?.toFixed(4)}</span>
                       {item.assetId || item.asset_id ? <span style={{ color: 'green' }}> ✓</span> : ''}
                     </span>
                   ))}
@@ -177,12 +190,13 @@ const RecipePage: React.FC = () => {
               </div>
             )}
             {/* Simulation outcomes */}
-            {r.outcome_summary && (() => {
+            {outcomes && (() => {
               try {
                 const outcomes = typeof r.outcome_summary === 'string' ? JSON.parse(r.outcome_summary) : r.outcome_summary;
-                if (!Array.isArray(outcomes) || outcomes.length === 0) return null;
+                const parsed = typeof outcomes === 'string' ? JSON.parse(outcomes) : outcomes;
+                if (!Array.isArray(parsed) || parsed.length === 0) return null;
                 const grouped = new Map<string, any[]>();
-                for (const o of outcomes) {
+                for (const o of parsed) {
                   const c = o.collection || 'Other';
                   if (!grouped.has(c)) grouped.set(c, []);
                   grouped.get(c)!.push(o);
@@ -217,9 +231,9 @@ const RecipePage: React.FC = () => {
                         </table>
                       </div>
                     ))}
-                    {r.avg_wear_norm != null && (
+                    {(detail.avg_wear_norm ?? r.avg_wear_norm) != null && (
                       <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                        平均归一化磨损: {(r.avg_wear_norm * 100).toFixed(1)}%
+                        平均归一化磨损: {((detail.avg_wear_norm ?? r.avg_wear_norm) * 100).toFixed(1)}%
                       </Text>
                     )}
                   </div>
@@ -234,7 +248,7 @@ const RecipePage: React.FC = () => {
               </div>
             )}
           </div>
-        )}
+        )})()}
       </div>
     );
   };
