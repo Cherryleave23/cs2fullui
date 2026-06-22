@@ -329,12 +329,10 @@ class CsgoapiResolver {
       for (const [rarity, names] of rMap) {
         for (const name of names) contains.push({ name, rarity: { name: rarity } });
       }
-      data.push({ name: coll, contains });
+      data.push({ id: coll, name: coll, contains });
     }
-    try {
-      loadCollectionData(data);
-      console.log('[CsgoResolver] Collection data: ' + collMap.size + ' collections');
-    } catch (_) { /* ok */ }
+    loadCollectionData(data);
+    console.log('[CsgoResolver] Collection data: ' + collMap.size + ' collections');
   }
 }
 
