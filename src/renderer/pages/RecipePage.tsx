@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Button, Space, Modal, message, Tag, Popconfirm, Input } from 'antd';
+import { Card, Typography, Button, Space, Modal, message, Tag, Popconfirm, Input, Image, Descriptions } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, ExperimentOutlined,
-  ToolOutlined, DownOutlined, RightOutlined, ImportOutlined,
+  ToolOutlined, DownOutlined, RightOutlined, ImportOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTradeUpStore } from '../stores/useTradeUpStore';
@@ -20,11 +20,12 @@ const RecipePage: React.FC = () => {
   const navigate = useNavigate();
   const [recipes, setRecipes] = useState<RecipeData[]>([]);
   const [loading, setLoading] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [expandedChildIds, setExpandedChildIds] = useState<Set<number>>(new Set());
   const [expandedDetails, setExpandedDetails] = useState<Record<number, any>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [importJson, setImportJson] = useState('');
+  const [executeResult, setExecuteResult] = useState<{ success: boolean; items: any[]; error?: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -95,6 +96,45 @@ const RecipePage: React.FC = () => {
     }
   };
 
+  // ── Execute trade-up ──
+  const handleExecute = async (recipe: RecipeData) => {
+    const full: any = await window.electronAPI.recipe.get(recipe.id);
+    const items = full?.items || [];
+    const assetIds = items.map((i: any) => i.asset_id || i.assetId).filter(Boolean);
+    if (assetIds.length !== 10) {
+      message.error(`该配方只有 ${assetIds.length} 个有效物品ID，无法执行汰换（需要10个）`);
+      return;
+    }
+    Modal.confirm({
+      title: '确认执行汰换交易',
+      content: `将消耗以下10件物品进行汰换，目标产出: ${recipe.target_rarity}。此操作不可撤销！`,
+      okText: '确认执行',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        message.loading({ content: '正在执行汰换...', key: 'exec' });
+        try {
+          const result: any = await window.electronAPI.tradeup.execute(assetIds);
+          if (result.success && result.gainedItemIds) {
+            // Resolve gained items
+            const gainedItems = [];
+            for (const id of result.gainedItemIds) {
+              const r: any = await window.electronAPI.tradeup.resolveSkin?.({ paintIndex: 0, weaponId: 0 });
+              gainedItems.push({ id, name: `Item ${id}` });
+            }
+            setExecuteResult({ success: true, items: gainedItems });
+          } else {
+            setExecuteResult({ success: false, error: result.error || '汰换失败', items: [] });
+          }
+          message.destroy('exec');
+        } catch (err: any) {
+          message.destroy('exec');
+          setExecuteResult({ success: false, error: err.message, items: [] });
+        }
+      },
+    });
+  };
+
   const handleImport = async () => {
     try {
       JSON.parse(importJson);
@@ -107,13 +147,13 @@ const RecipePage: React.FC = () => {
   // ── Render recipe row ──
   const renderRecipe = (r: RecipeData, isChild = false) => {
     const hasChildren = r.children && r.children.length > 0;
-    const isExpanded = isChild ? expandedChildIds.has(r.id) : (expandedId === r.id);
+    const isExpanded = isChild ? expandedChildIds.has(r.id) : expandedIds.has(r.id);
 
     const toggleExpand = async () => {
       if (isChild) {
         setExpandedChildIds(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; });
       } else {
-        setExpandedId(isExpanded ? null : r.id);
+        setExpandedIds(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; });
       }
       // Load full recipe data (items + outcomes) if not already loaded
       if (!isExpanded && (!r.items || r.items.length === 0)) {
@@ -147,13 +187,17 @@ const RecipePage: React.FC = () => {
             {/* Right: actions */}
             <Space size={4}>
               <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)}>编辑</Button>
+              {r.type === 'real' && (
+                <Button size="small" type="primary" danger icon={<ThunderboltOutlined />}
+                  onClick={() => handleExecute(r)}>执行汰换</Button>
+              )}
               {!isChild && (
                 <Button size="small" icon={<ToolOutlined />}
                   onClick={() => handleAutoSub(r.id)}>自动配置子配方</Button>
               )}
               {!isChild && hasChildren && (
                 <Button size="small"
-                  onClick={() => setExpandedId(isExpanded ? null : r.id)}>
+                  onClick={() => setExpandedIds(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; })}>
                   查看子配方 ({r.children.length})
                 </Button>
               )}
@@ -278,6 +322,33 @@ const RecipePage: React.FC = () => {
         onOk={handleImport} okText="导入">
         <Input.TextArea rows={8} value={importJson}
           onChange={e => setImportJson(e.target.value)} placeholder="粘贴配方 JSON..." />
+      </Modal>
+
+      {/* Execute Result Modal */}
+      <Modal title={executeResult?.success ? '汰换成功！' : '汰换失败'}
+        open={!!executeResult} onCancel={() => setExecuteResult(null)}
+        footer={<Button onClick={() => setExecuteResult(null)}>关闭</Button>} width={500}>
+        {executeResult?.success ? (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Text type="success" strong>汰换交易完成！获得以下物品:</Text>
+            {executeResult.items.map((item: any, idx: number) => (
+              <Card key={idx} size="small">
+                <Space>
+                  {item.imageUrl && <Image src={item.imageUrl} width={64} preview={false} />}
+                  <div>
+                    <Text strong>{item.name}</Text>
+                    <br />
+                    <Text style={{ fontSize: 12, fontFamily: 'monospace' }}>
+                      磨损: {item.wearFloat?.toFixed(16) || '-'}
+                    </Text>
+                  </div>
+                </Space>
+              </Card>
+            ))}
+          </Space>
+        ) : (
+          <Text type="danger">{executeResult?.error || '未知错误'}</Text>
+        )}
       </Modal>
     </div>
   );
