@@ -21,6 +21,7 @@ const RecipePage: React.FC = () => {
   const [recipes, setRecipes] = useState<RecipeData[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedChildId, setExpandedChildId] = useState<number | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importJson, setImportJson] = useState('');
 
@@ -105,7 +106,14 @@ const RecipePage: React.FC = () => {
   // ── Render recipe row ──
   const renderRecipe = (r: RecipeData, isChild = false) => {
     const hasChildren = r.children && r.children.length > 0;
-    const isExpanded = expandedId === r.id;
+    const isExpanded = isChild ? (expandedChildId === r.id) : (expandedId === r.id);
+    const toggleExpand = () => {
+      if (isChild) {
+        setExpandedChildId(isExpanded ? null : r.id);
+      } else {
+        setExpandedId(isExpanded ? null : r.id);
+      }
+    };
 
     return (
       <div key={r.id} style={{ marginLeft: isChild ? 32 : 0, marginBottom: isChild ? 4 : 12 }}>
@@ -113,11 +121,9 @@ const RecipePage: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {/* Left: expand + name */}
             <Space>
-              {!isChild && (
-                <Button type="text" size="small"
-                  icon={isExpanded ? <DownOutlined /> : <RightOutlined />}
-                  onClick={() => setExpandedId(isExpanded ? null : r.id)} />
-              )}
+              <Button type="text" size="small"
+                icon={isExpanded ? <DownOutlined /> : <RightOutlined />}
+                onClick={toggleExpand} />
               <Text strong={!isChild}>{r.name}</Text>
               <Tag color={r.type === 'real' ? 'green' : 'blue'}>
                 {r.type === 'real' ? '真实' : '虚拟'}
@@ -150,7 +156,7 @@ const RecipePage: React.FC = () => {
         </Card>
 
         {/* Expanded: show items + outcomes + children */}
-        {isExpanded && !isChild && (
+        {isExpanded && (
           <div style={{ marginTop: 8, marginLeft: 16, padding: 12, background: '#f9f9f9', borderRadius: 8 }}>
             {/* Recipe detail: 10 items */}
             {r.items && r.items.length > 0 && (
@@ -182,18 +188,40 @@ const RecipePage: React.FC = () => {
                   grouped.get(c)!.push(o);
                 }
                 return (
-                  <div>
-                    <Text strong style={{ fontSize: 13 }}>模拟产出:</Text>
+                  <div style={{ marginTop: 8 }}>
+                    <Text strong style={{ fontSize: 13 }}>模拟产出结果:</Text>
                     {[...grouped.entries()].map(([coll, items]) => (
                       <div key={coll} style={{ marginTop: 4 }}>
                         <Text style={{ fontSize: 11, color: '#666' }}>{coll}:</Text>
-                        {items.map((o: any, idx: number) => (
-                          <span key={idx} style={{ fontSize: 11, marginLeft: 8 }}>
-                            {o.nameZh || o.name} ({(o.probability * 100).toFixed(0)}%)
-                          </span>
-                        ))}
+                        <table style={{ fontSize: 11, marginLeft: 16, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid #e8e8e8' }}>
+                              <th style={{ textAlign: 'left', padding: '2px 8px' }}>物品</th>
+                              <th style={{ textAlign: 'right', padding: '2px 8px' }}>概率</th>
+                              <th style={{ textAlign: 'right', padding: '2px 8px' }}>预估磨损</th>
+                              <th style={{ textAlign: 'left', padding: '2px 8px' }}>磨损类别</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {items.map((o: any, idx: number) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                                <td style={{ padding: '2px 8px' }}>{o.nameZh || o.name}</td>
+                                <td style={{ textAlign: 'right', padding: '2px 8px' }}>{(o.probability * 100).toFixed(1)}%</td>
+                                <td style={{ textAlign: 'right', padding: '2px 8px', fontFamily: 'monospace' }}>
+                                  ~{o.estWearFloat?.toFixed(6) || '-'}
+                                </td>
+                                <td style={{ padding: '2px 8px' }}>{o.estWearCategory || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     ))}
+                    {r.avg_wear_norm != null && (
+                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
+                        平均归一化磨损: {(r.avg_wear_norm * 100).toFixed(1)}%
+                      </Text>
+                    )}
                   </div>
                 );
               } catch { return null; }
