@@ -313,18 +313,28 @@ class CsgoapiResolver {
 
   private _buildCollectionOutputs(all: any): void {
     const data: any[] = [];
+    // Build reverse index: skin name → collection name
+    const nameToColl = new Map<string, string>();
     for (const [key, entry] of Object.entries(all)) {
       if (!key.startsWith('collection-set-') || !entry || typeof entry !== 'object') continue;
       const coll = entry as any;
       if (!coll.contains) continue;
-      data.push({
-        id: coll.name || key,
-        name: coll.name || key,
-        contains: coll.contains,
-      });
+      data.push({ id: coll.name || key, name: coll.name || key, contains: coll.contains });
+      // Map each skin in this collection back to the collection name
+      for (const skin of coll.contains) {
+        if (skin.name) nameToColl.set(skin.name, coll.name);
+      }
+    }
+    // Now update skinByKey entries with collection names
+    for (const entry of this.skinByKey.values()) {
+      const name = entry.name || '';
+      const collName = nameToColl.get(name);
+      if (collName) {
+        if (!entry.collections) entry.collections = [{ name: collName }];
+      }
     }
     loadCollectionData(data);
-    console.log('[CsgoResolver] Collection data: ' + data.length + ' collections');
+    console.log('[CsgoResolver] Collection data: ' + data.length + ' collections, ' + nameToColl.size + ' skin mappings');
   }
 }
 
