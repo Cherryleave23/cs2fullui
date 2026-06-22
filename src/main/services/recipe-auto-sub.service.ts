@@ -74,12 +74,22 @@ export function generateSubRecipes(parentId: number): GenerationResult {
       byColl.get(cn)!.push(c);
     }
 
-    const sel: ResolvedItem[] = [];
+    // Sort each collection's items by wear norm proximity to parent norm
+    const sortedByColl = new Map<string, ResolvedItem[]>();
     for (const [coll, items] of byColl) {
+      sortedByColl.set(coll, [...items].sort((a, b) => {
+        const na = ((a.paintWear - (a.minFloat || 0)) / Math.max(0.001, (a.maxFloat || 1) - (a.minFloat || 0)));
+        const nb = ((b.paintWear - (b.minFloat || 0)) / Math.max(0.001, (b.maxFloat || 1) - (b.minFloat || 0)));
+        return Math.abs(na - parentNorm) - Math.abs(nb - parentNorm);
+      }));
+    }
+
+    const sel: ResolvedItem[] = [];
+    for (const [coll, items] of sortedByColl) {
       const need = Math.max(1, Math.round(parentSim.collectionsUsed.filter(cc => cc === coll).length / 10 * 10));
       for (let i = 0; i < Math.min(need, items.length) && sel.length < 10; i++) sel.push(items[i]);
     }
-    for (const items of byColl.values()) {
+    for (const items of sortedByColl.values()) {
       for (const item of items) { if (sel.length >= 10) break; if (!sel.includes(item)) sel.push(item); }
     }
 
