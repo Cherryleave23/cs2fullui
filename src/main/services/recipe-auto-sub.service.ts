@@ -55,6 +55,14 @@ export function generateSubRecipes(parentId: number): GenerationResult {
 
   const usedIds = new Set<string>();
   if (parent.type === 'real') for (const pi of parentItems) { if (pi.asset_id) usedIds.add(pi.asset_id); }
+  // Also exclude items already used in existing children
+  const existingChildren = RecipeRepo.getByParent(parentId);
+  for (const child of existingChildren) {
+    for (const ci of RecipeRepo.getItems(child.id)) {
+      if (ci.asset_id) usedIds.add(ci.asset_id);
+    }
+  }
+  console.log('[AutoSub] Used IDs (parent + existing children): ' + usedIds.size);
 
   const subs: SubRecipeCandidate[] = [];
   for (let r = 0; r < 20; r++) {

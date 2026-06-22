@@ -266,12 +266,12 @@ const RecipePage: React.FC = () => {
 
       {recipes.length === 0 ? (
         <Card>
-          <Text type="secondary">
-            暂无配方。在汰换交易页面配置10件物品并模拟后，点击"保存配方"。
-          </Text>
+          <Text type="secondary">暂无配方。</Text>
         </Card>
       ) : (
-        recipes.map(r => renderRecipe(r))
+        <div style={{ maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', paddingRight: 8 }}>
+          {recipes.map(r => renderRecipe(r))}
+        </div>
       )}
 
       <Modal title="导入配方" open={importOpen} onCancel={() => setImportOpen(false)}
