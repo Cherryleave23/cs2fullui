@@ -37,21 +37,27 @@ const RecipePage: React.FC = () => {
 
   // ── Actions ──
   const handleEdit = async (recipe: RecipeData) => {
-    // Load recipe items into trade-up store and navigate
     const full: any = await window.electronAPI.recipe.get(recipe.id);
     if (full?.items) {
       const tradeUpStore = useTradeUpStore.getState();
       tradeUpStore.clearAll();
       for (let i = 0; i < Math.min(full.items.length, 10); i++) {
         const item = full.items[i];
+        // Resolve real skin name from CsgoapiResolver
+        const skin: any = await (window.electronAPI as any).resolveSkin?.({
+          paintIndex: item.paint_index, weaponId: item.weapon_id
+        });
         tradeUpStore.setSlot(i, {
           assetId: item.asset_id || '',
-          name: item.paint_index + '|' + item.weapon_id,
-          nameZh: item.paint_index + '|' + item.weapon_id,
+          name: skin?.name || `#${item.paint_index}`,
+          nameZh: skin?.nameZh || `#${item.paint_index}`,
           paintIndex: item.paint_index, weaponId: item.weapon_id,
-          rarity: recipe.rarity, rarityColor: '#888',
-          wearFloat: item.wear_float, minFloat: 0, maxFloat: 1,
-          collection: '', isStatTrak: item.stattrak === 1, isSouvenir: item.souvenir === 1,
+          rarity: skin?.rarity || recipe.rarity,
+          rarityColor: skin?.rarityColor || '#888',
+          wearFloat: item.wear_float,
+          minFloat: skin?.minFloat ?? 0, maxFloat: skin?.maxFloat ?? 1,
+          collection: skin?.collection || '',
+          isStatTrak: item.stattrak === 1, isSouvenir: item.souvenir === 1,
         });
       }
       if (full.outcome_summary) {
@@ -143,17 +149,62 @@ const RecipePage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Expanded: show items + children */}
+        {/* Expanded: show items + outcomes + children */}
         {isExpanded && !isChild && (
-          <div style={{ marginTop: 8, marginLeft: 16 }}>
-            {/* Show parent items summary */}
+          <div style={{ marginTop: 8, marginLeft: 16, padding: 12, background: '#f9f9f9', borderRadius: 8 }}>
+            {/* Recipe detail: 10 items */}
             {r.items && r.items.length > 0 && (
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                物品: {r.items.map((i: any) => `#${i.paint_index || i.paintIndex}`).join(', ')}
-              </Text>
+              <div style={{ marginBottom: 8 }}>
+                <Text strong style={{ fontSize: 13 }}>配方物品 ({r.items.length} 件):</Text>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                  {r.items.map((item: any, idx: number) => (
+                    <span key={idx} style={{
+                      fontSize: 11, padding: '2px 6px', background: '#fff', borderRadius: 4,
+                      border: '1px solid #e8e8e8',
+                    }}>
+                      #{idx + 1}: {item.paintIndex || item.paint_index}|{item.weaponId || item.weapon_id}
+                      <span style={{ color: '#888' }}> @{item.wearFloat?.toFixed(4) || item.wear_float?.toFixed(4)}</span>
+                      {item.assetId || item.asset_id ? <span style={{ color: 'green' }}> ✓</span> : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
-            {/* Show children */}
-            {r.children.map(child => renderRecipe(child, true))}
+            {/* Simulation outcomes */}
+            {r.outcome_summary && (() => {
+              try {
+                const outcomes = typeof r.outcome_summary === 'string' ? JSON.parse(r.outcome_summary) : r.outcome_summary;
+                if (!Array.isArray(outcomes) || outcomes.length === 0) return null;
+                const grouped = new Map<string, any[]>();
+                for (const o of outcomes) {
+                  const c = o.collection || 'Other';
+                  if (!grouped.has(c)) grouped.set(c, []);
+                  grouped.get(c)!.push(o);
+                }
+                return (
+                  <div>
+                    <Text strong style={{ fontSize: 13 }}>模拟产出:</Text>
+                    {[...grouped.entries()].map(([coll, items]) => (
+                      <div key={coll} style={{ marginTop: 4 }}>
+                        <Text style={{ fontSize: 11, color: '#666' }}>{coll}:</Text>
+                        {items.map((o: any, idx: number) => (
+                          <span key={idx} style={{ fontSize: 11, marginLeft: 8 }}>
+                            {o.nameZh || o.name} ({(o.probability * 100).toFixed(0)}%)
+                          </span>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                );
+              } catch { return null; }
+            })()}
+            {/* Children sub-recipes */}
+            {r.children && r.children.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <Text strong style={{ fontSize: 12 }}>子配方 ({r.children.length}):</Text>
+                {r.children.map(child => renderRecipe(child, true))}
+              </div>
+            )}
           </div>
         )}
       </div>

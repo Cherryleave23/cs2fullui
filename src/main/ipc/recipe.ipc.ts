@@ -96,6 +96,11 @@ export function registerRecipeIpc(): void {
     } catch (err: any) { return { error: err.message }; }
   });
 
+  // ── Resolve skin by paintIndex + weaponId ──
+  ipcMain.handle('tradeup:resolve-skin', async (_e, params: { paintIndex: number; weaponId: number }) => {
+    return csgoResolver.resolveSkinByKey(params.paintIndex, params.weaponId);
+  });
+
   // ── Autocomplete: search skins by name ──
   ipcMain.handle('tradeup:autocomplete', async (_e, query: string) => {
     if (!query || query.length < 1) return [];

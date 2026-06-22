@@ -287,6 +287,22 @@ class CsgoapiResolver {
 
   resolveAll(items: any[]): ResolvedItem[] { return items.map(i => this.resolveOne(i)); }
 
+  /** Resolve skin metadata by paintIndex + weaponId for recipe editing */
+  resolveSkinByKey(paintIndex: number, weaponId: number): { name: string; nameZh: string; collection: string; minFloat: number; maxFloat: number; rarity: string; rarityColor: string; imageUrl: string } | null {
+    const entry = this.skinByKey.get(`${paintIndex}|${weaponId}`);
+    if (!entry) return null;
+    return {
+      name: entry.name || '',
+      nameZh: entry.name || '',
+      collection: entry.collections?.[0]?.name || '',
+      minFloat: entry.min_float ?? 0,
+      maxFloat: entry.max_float ?? 1,
+      rarity: entry.rarity?.name || '',
+      rarityColor: entry.rarity?.color || '#b0c4d8',
+      imageUrl: entry.image || '',
+    };
+  }
+
   /** Get all skin entries for autocomplete */
   getAllSkins(): Array<{
     name: string; nameZh: string; paintIndex: string; weaponId: number;

@@ -96,8 +96,10 @@ const electronAPI = {
     openLogsDir: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_LOGS_DIR),
   },
 
-  // Autocomplete: search skins for trade-up
+  // Autocomplete + resolve skin for trade-up
   autocomplete: (query: string) => ipcRenderer.invoke('tradeup:autocomplete', query),
+  resolveSkin: (params: { paintIndex: number; weaponId: number }) =>
+    ipcRenderer.invoke('tradeup:resolve-skin', params),
 
   // ── Direct Steam login + token persistence ──
   steamLogin: (params: { accountName: string; password: string; proxyUrl?: string; nickname?: string }) =>
