@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { executeTradeUp } from '../services/tradeup.service';
+import { simulateTradeUp } from '../services/tradeup-simulator';
 import { TradeUpRepo } from '../db/repositories/tradeup.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
 import type { SteamBotService } from '../services/steam-bot.service';
@@ -53,7 +54,6 @@ export function registerTradeUpIpc(botGetter: () => SteamBotService | null): voi
         isSouvenir: i.isSouvenir || i.is_souvenir || false,
       }));
 
-      const { simulateTradeUp } = require('../services/tradeup-simulator');
       const result = simulateTradeUp(inputs);
 
       return result;
