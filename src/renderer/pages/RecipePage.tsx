@@ -21,7 +21,7 @@ const RecipePage: React.FC = () => {
   const [recipes, setRecipes] = useState<RecipeData[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [expandedChildId, setExpandedChildId] = useState<number | null>(null);
+  const [expandedChildIds, setExpandedChildIds] = useState<Set<number>>(new Set());
   const [expandedDetails, setExpandedDetails] = useState<Record<number, any>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [importJson, setImportJson] = useState('');
@@ -107,11 +107,11 @@ const RecipePage: React.FC = () => {
   // ── Render recipe row ──
   const renderRecipe = (r: RecipeData, isChild = false) => {
     const hasChildren = r.children && r.children.length > 0;
-    const isExpanded = isChild ? (expandedChildId === r.id) : (expandedId === r.id);
+    const isExpanded = isChild ? expandedChildIds.has(r.id) : (expandedId === r.id);
 
     const toggleExpand = async () => {
       if (isChild) {
-        setExpandedChildId(isExpanded ? null : r.id);
+        setExpandedChildIds(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; });
       } else {
         setExpandedId(isExpanded ? null : r.id);
       }
@@ -181,10 +181,12 @@ const RecipePage: React.FC = () => {
                       fontSize: 11, padding: '2px 6px', background: '#fff', borderRadius: 4,
                       border: '1px solid #e8e8e8',
                     }}>
-                      #{idx + 1}: <span style={{ color: item.skinColor || '#888' }}>
+                      <span style={{ color: item.skinColor || '#888' }}>
                         {item.skinName || `#${item.paint_index || item.paintIndex}|${item.weapon_id || item.weaponId}`}
                       </span>
-                      <span style={{ color: '#888' }}> @{(item.wearFloat || item.wear_float)?.toFixed(4)}</span>
+                      <span style={{ color: '#888', marginLeft: 4 }}>
+                        磨损：{(item.wearFloat || item.wear_float)?.toFixed(16)}
+                      </span>
                       {item.assetId || item.asset_id ? <span style={{ color: 'green' }}> ✓</span> : ''}
                     </span>
                   ))}
