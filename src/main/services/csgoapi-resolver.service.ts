@@ -128,8 +128,8 @@ class CsgoapiResolver {
       }
 
       this.loaded = true;
-      // Build collection output data for trade-up simulator
-      this._buildCollectionOutputs();
+      // Build collection output data from collection-set entries
+      this._buildCollectionOutputs(all);
       console.log(`[CsgoResolver] ${skinCount} skins, ${stickerCount} stickers, ${otherCount} others (${Date.now() - start}ms)`);
       return true;
     } catch (err) { console.error('[CsgoResolver] Load error:', err); return false; }
@@ -311,28 +311,20 @@ class CsgoapiResolver {
     return result;
   }
 
-  private _buildCollectionOutputs(): void {
-    const collMap = new Map<string, Map<string, string[]>>();
-    for (const entry of this.skinByKey.values()) {
-      const coll = entry.collections?.[0]?.name;
-      const rarity = entry.rarity?.name;
-      const name = entry.name || '';
-      if (!coll || !rarity) continue;
-      if (!collMap.has(coll)) collMap.set(coll, new Map());
-      const rMap = collMap.get(coll)!;
-      if (!rMap.has(rarity)) rMap.set(rarity, []);
-      rMap.get(rarity)!.push(name);
-    }
+  private _buildCollectionOutputs(all: any): void {
     const data: any[] = [];
-    for (const [coll, rMap] of collMap) {
-      const contains: any[] = [];
-      for (const [rarity, names] of rMap) {
-        for (const name of names) contains.push({ name, rarity: { name: rarity } });
-      }
-      data.push({ id: coll, name: coll, contains });
+    for (const [key, entry] of Object.entries(all)) {
+      if (!key.startsWith('collection-set-') || !entry || typeof entry !== 'object') continue;
+      const coll = entry as any;
+      if (!coll.contains) continue;
+      data.push({
+        id: coll.name || key,
+        name: coll.name || key,
+        contains: coll.contains,
+      });
     }
     loadCollectionData(data);
-    console.log('[CsgoResolver] Collection data: ' + collMap.size + ' collections');
+    console.log('[CsgoResolver] Collection data: ' + data.length + ' collections');
   }
 }
 

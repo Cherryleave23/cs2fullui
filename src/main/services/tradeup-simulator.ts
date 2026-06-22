@@ -146,6 +146,19 @@ export function simulateTradeUp(items: SimInputItem[]): SimulationResult {
     const collectionProb = collItems.length / 10;
     const outputs = COLLECTION_OUTPUTS[collection]?.[targetRarityZh] || [];
 
+    // Diagnostic on first call
+    if (!(globalThis as any)._simDiag) {
+      (globalThis as any)._simDiag = true;
+      console.log('[Simulator] Collections in inputs:', [...collectionCounts.keys()]);
+      console.log('[Simulator] Target rarity:', targetRarityZh);
+      const availColls = Object.keys(COLLECTION_OUTPUTS).slice(0, 10);
+      console.log('[Simulator] Available collections (first 10):', availColls);
+      for (const [c, _] of collectionCounts) {
+        const avail = COLLECTION_OUTPUTS[c];
+        console.log(`[Simulator] "${c}" → ${avail ? Object.keys(avail).join(', ') : 'NOT FOUND'}`);
+      }
+    }
+
     if (outputs.length > 0) {
       // Known outputs — distribute probability evenly
       const perOutputProb = collectionProb / outputs.length;
