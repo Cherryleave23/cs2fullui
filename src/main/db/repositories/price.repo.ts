@@ -1,4 +1,4 @@
-import { dbAll, dbGet, dbRun, saveDatabase } from '../connection';
+import { dbAll, dbGet, dbRun, saveDatabase, getDatabase } from '../connection';
 
 export interface PriceCacheRow {
   id: number;
@@ -84,7 +84,7 @@ export const PriceRepo = {
     medianPrice?: number | null;
     volume24h?: number | null;
   }>): void {
-    const db = require('../connection').getDatabase();
+    const db = getDatabase();
     db.run('BEGIN TRANSACTION');
     try {
       for (const p of prices) {

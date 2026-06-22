@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
 import { getWearCategory } from '../db/seed';
+import { loadCollectionData } from './tradeup-simulator';
 import type { ResolvedItem } from '../../shared/types/item';
 
 // Category precision in descending order (10,000 / entry_count)
@@ -127,6 +128,8 @@ class CsgoapiResolver {
       }
 
       this.loaded = true;
+      // Build collection output data for trade-up simulator
+      this._buildCollectionOutputs();
       console.log(`[CsgoResolver] ${skinCount} skins, ${stickerCount} stickers, ${otherCount} others (${Date.now() - start}ms)`);
       return true;
     } catch (err) { console.error('[CsgoResolver] Load error:', err); return false; }
@@ -306,6 +309,32 @@ class CsgoapiResolver {
       });
     }
     return result;
+  }
+
+  private _buildCollectionOutputs(): void {
+    const collMap = new Map<string, Map<string, string[]>>();
+    for (const entry of this.skinByKey.values()) {
+      const coll = entry.collections?.[0]?.name;
+      const rarity = entry.rarity?.name;
+      const name = entry.name || '';
+      if (!coll || !rarity) continue;
+      if (!collMap.has(coll)) collMap.set(coll, new Map());
+      const rMap = collMap.get(coll)!;
+      if (!rMap.has(rarity)) rMap.set(rarity, []);
+      rMap.get(rarity)!.push(name);
+    }
+    const data: any[] = [];
+    for (const [coll, rMap] of collMap) {
+      const contains: any[] = [];
+      for (const [rarity, names] of rMap) {
+        for (const name of names) contains.push({ name, rarity: { name: rarity } });
+      }
+      data.push({ name: coll, contains });
+    }
+    try {
+      loadCollectionData(data);
+      console.log('[CsgoResolver] Collection data: ' + collMap.size + ' collections');
+    } catch (_) { /* ok */ }
   }
 }
 

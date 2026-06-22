@@ -1,4 +1,4 @@
-import { dbAll, dbGet, dbRun, saveDatabase } from '../connection';
+import { dbAll, dbGet, dbRun, saveDatabase, getDatabase } from '../connection';
 
 export interface RecipeRow {
   id: number;
@@ -75,7 +75,7 @@ export const RecipeRepo = {
     const recipeId = (dbGet<{ id: number }>('SELECT last_insert_rowid() as id'))?.id ?? 0;
 
     if (params.items.length > 0) {
-      const stmt = require('../connection').getDatabase().prepare(
+      const stmt = getDatabase().prepare(
         `INSERT INTO recipe_items (recipe_id, paint_index, weapon_id, wear_float, asset_id, stattrak, souvenir, position)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       );
@@ -159,7 +159,7 @@ export const RecipeRepo = {
   updateItems(recipeId: number, items: Omit<RecipeItemRow, 'id' | 'recipe_id'>[]): void {
     dbRun('DELETE FROM recipe_items WHERE recipe_id = ?', [recipeId]);
     if (items.length > 0) {
-      const stmt = require('../connection').getDatabase().prepare(
+      const stmt = getDatabase().prepare(
         `INSERT INTO recipe_items (recipe_id, paint_index, weapon_id, wear_float, asset_id, stattrak, souvenir, position)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       );

@@ -1,4 +1,4 @@
-import { dbAll, dbGet, dbRun, saveDatabase } from '../connection';
+import { dbAll, dbGet, dbRun, saveDatabase, getDatabase } from '../connection';
 
 export interface TradeUpHistoryRow {
   id: number;
@@ -82,7 +82,7 @@ export const TradeUpRepo = {
 
   /** Add input items to a trade-up */
   addInputItems(tradeupId: number, items: Omit<TradeUpInputItemRow, 'id' | 'tradeup_id'>[]): void {
-    const stmt = require('../connection').getDatabase().prepare(
+    const stmt = getDatabase().prepare(
       `INSERT INTO tradeup_input_items (tradeup_id, asset_id, paint_index, weapon_id, wear_float, item_name, rarity_name)
       VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
@@ -95,7 +95,7 @@ export const TradeUpRepo = {
 
   /** Add outcome items to a trade-up */
   addOutcomeItems(tradeupId: number, items: Omit<TradeUpOutcomeItemRow, 'id' | 'tradeup_id'>[]): void {
-    const stmt = require('../connection').getDatabase().prepare(
+    const stmt = getDatabase().prepare(
       `INSERT INTO tradeup_outcome_items (tradeup_id, asset_id, item_name, paint_index, wear_float, rarity_name, wear_category, collection_name)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );

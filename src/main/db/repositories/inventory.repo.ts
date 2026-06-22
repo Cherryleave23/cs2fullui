@@ -1,4 +1,4 @@
-import { dbAll, dbGet, dbRun, saveDatabase } from '../connection';
+import { dbAll, dbGet, dbRun, saveDatabase, getDatabase } from '../connection';
 import type { ResolvedItem } from '../../../shared/types/item';
 
 // DB returns snake_case; app uses camelCase
@@ -88,7 +88,6 @@ export const InventoryRepo = {
 
   /** Bulk upsert items (wraps in transaction) */
   upsertItems(items: ResolvedItem[]): void {
-    const { getDatabase } = require('../connection');
     const db = getDatabase();
     db.run('BEGIN TRANSACTION');
     try {
