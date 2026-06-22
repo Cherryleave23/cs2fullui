@@ -5,6 +5,8 @@ export interface TradeUpSlotItem {
   assetId: string;
   name: string;
   nameZh?: string;
+  paintIndex: number;
+  weaponId: number;
   rarity: string;
   rarityZh?: string;
   rarityColor?: string;
@@ -76,6 +78,8 @@ export const useTradeUpStore = create<TradeUpState>((set, get) => ({
         assetId: items[i].assetId,
         name: items[i].resolvedNameZh || items[i].resolvedName,
         nameZh: items[i].resolvedNameZh,
+        paintIndex: items[i].paintIndex,
+        weaponId: items[i].defIndex,
         rarity: items[i].rarityName || '',
         rarityZh: items[i].rarityNameZh,
         rarityColor: items[i].rarityColor,

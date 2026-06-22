@@ -283,6 +283,30 @@ class CsgoapiResolver {
   }
 
   resolveAll(items: any[]): ResolvedItem[] { return items.map(i => this.resolveOne(i)); }
+
+  /** Get all skin entries for autocomplete */
+  getAllSkins(): Array<{
+    name: string; nameZh: string; paintIndex: string; weaponId: number;
+    minFloat: number; maxFloat: number; collection: string; imageUrl: string;
+    rarity: string; rarityColor: string;
+  }> {
+    const result: any[] = [];
+    for (const entry of this.skinByKey.values()) {
+      result.push({
+        name: entry.name || '',
+        nameZh: entry.name || '',
+        paintIndex: entry.paint_index || '0',
+        weaponId: entry.weapon?.weapon_id || 0,
+        minFloat: entry.min_float ?? 0,
+        maxFloat: entry.max_float ?? 1,
+        collection: entry.collections?.[0]?.name || '',
+        imageUrl: entry.image || '',
+        rarity: entry.rarity?.name || '',
+        rarityColor: entry.rarity?.color || '#b0c4d8',
+      });
+    }
+    return result;
+  }
 }
 
 export const csgoResolver = new CsgoapiResolver();

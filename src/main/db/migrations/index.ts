@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS tradeup_outcome_items (
 );
 CREATE TABLE IF NOT EXISTS recipes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id       INTEGER,
     name            TEXT NOT NULL,
     description     TEXT,
     type            TEXT NOT NULL DEFAULT 'virtual',
@@ -105,6 +106,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     target_rarity   TEXT NOT NULL,
     is_stattrak     INTEGER DEFAULT 0,
     avg_wear_norm   REAL,
+    avg_target_wear REAL,
     outcome_summary TEXT,
     tags            TEXT,
     created_at      TEXT,
@@ -148,6 +150,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value           TEXT NOT NULL,
     updated_at      TEXT
 );
+`;
+
+const MIGRATION_002 = `
+ALTER TABLE recipes ADD COLUMN parent_id INTEGER;
+ALTER TABLE recipes ADD COLUMN avg_target_wear REAL;
 `;
 
 function execSQL(sql: string): void {
@@ -201,6 +208,17 @@ export function runMigrations(): void {
       dbRun("INSERT INTO _migrations (name, applied_at) VALUES ('001_initial', datetime('now'))");
       saveDatabase();
     }
+  }
+
+  // ── Migration 002: recipe parent_id + avg_target_wear ──
+  const applied002 = dbGet<{ name: string }>(
+    'SELECT name FROM _migrations WHERE name = ?', ['002_recipe_tree']
+  );
+  if (!applied002) {
+    console.log('[DB] Applying migration 002_recipe_tree');
+    execSQL(MIGRATION_002);
+    dbRun("INSERT INTO _migrations (name, applied_at) VALUES ('002_recipe_tree', datetime('now'))");
+    saveDatabase();
   }
 
   console.log('[DB] Migrations ready');

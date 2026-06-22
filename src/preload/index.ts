@@ -31,6 +31,9 @@ const electronAPI = {
       ipcRenderer.invoke('auth:update-nickname', params),
     deleteAccount: (steamId: string) =>
       ipcRenderer.invoke('auth:delete-account', steamId),
+    autocomplete: (query: string) => ipcRenderer.invoke('tradeup:autocomplete', query),
+    autoSub: (parentId: number) => ipcRenderer.invoke('recipe:auto-sub', parentId),
+    replace: (params: { id: number; recipe: any }) => ipcRenderer.invoke('recipe:replace', params),
   },
 
   // ── Inventory ──
@@ -92,6 +95,9 @@ const electronAPI = {
     openDataDir: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_DATA_DIR),
     openLogsDir: () => ipcRenderer.invoke(IPC_CHANNELS.APP_OPEN_LOGS_DIR),
   },
+
+  // Autocomplete: search skins for trade-up
+  autocomplete: (query: string) => ipcRenderer.invoke('tradeup:autocomplete', query),
 
   // ── Direct Steam login + token persistence ──
   steamLogin: (params: { accountName: string; password: string; proxyUrl?: string; nickname?: string }) =>

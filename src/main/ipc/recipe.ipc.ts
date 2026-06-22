@@ -1,64 +1,118 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { RecipeRepo } from '../db/repositories/recipe.repo';
+import { InventoryRepo } from '../db/repositories/inventory.repo';
+import { csgoResolver } from '../services/csgoapi-resolver.service';
 
 export function registerRecipeIpc(): void {
+  // ── List all recipes (parent + children) ──
   ipcMain.handle(IPC_CHANNELS.RECIPE_LIST, async () => {
-    return RecipeRepo.list();
+    return RecipeRepo.getTree();
   });
 
-  ipcMain.handle(IPC_CHANNELS.RECIPE_GET, async (_event, id: number) => {
+  // ── Get single recipe with items ──
+  ipcMain.handle(IPC_CHANNELS.RECIPE_GET, async (_e, id: number) => {
     const recipe = RecipeRepo.getById(id);
     if (!recipe) return null;
-    return { ...recipe, items: RecipeRepo.getItems(id) };
+    return { ...recipe, items: RecipeRepo.getItems(id), children: RecipeRepo.getByParent(id) };
   });
 
-  ipcMain.handle(IPC_CHANNELS.RECIPE_SAVE, async (_event, recipe: any) => {
+  // ── Save recipe (with duplicate check) ──
+  ipcMain.handle(IPC_CHANNELS.RECIPE_SAVE, async (_e, recipe: any) => {
     try {
-      const saved = RecipeRepo.create(recipe);
-      return { ...saved, items: RecipeRepo.getItems(saved.id) };
-    } catch (err: any) {
-      return { error: err.message };
-    }
-  });
+      const paintKeys = (recipe.items || [])
+        .map((i: any) => `${i.paintIndex || i.paint_index}|${i.weaponId || i.weapon_id}`)
+        .sort().join(',');
+      const dup = RecipeRepo.findDuplicate({ name: recipe.name, rarity: recipe.rarity, paintKeys });
+      if (dup) return { duplicate: true, id: dup.id, message: '同名同内容配方已存在，是否替换？' };
 
-  ipcMain.handle(IPC_CHANNELS.RECIPE_DELETE, async (_event, id: number) => {
-    RecipeRepo.delete(id);
-    return { success: true };
-  });
-
-  ipcMain.handle(IPC_CHANNELS.RECIPE_EXPORT, async (_event, id: number) => {
-    const data = RecipeRepo.exportJson(id);
-    return data ? JSON.stringify(data, null, 2) : null;
-  });
-
-  ipcMain.handle(IPC_CHANNELS.RECIPE_IMPORT, async (_event, json: string) => {
-    try {
-      const data = JSON.parse(json);
-      if (!data.version || !data.name || !data.rarity || !data.targetRarity || !Array.isArray(data.items)) {
-        return { error: '无效的配方格式' };
-      }
       const saved = RecipeRepo.create({
-        name: data.name,
-        description: data.description,
-        rarity: data.rarity,
-        targetRarity: data.targetRarity,
-        isStatTrak: data.isStatTrak ?? false,
-        avgWearNorm: data.avgWearNorm ?? null,
-        outcomeSummary: data.simulation ? JSON.stringify(data.simulation) : null,
-        items: data.items.map((i: any, idx: number) => ({
-          paint_index: i.paintIndex,
-          weapon_id: i.weaponId,
-          wear_float: i.wearFloat,
-          asset_id: i.assetId ?? null,
-          stattrak: i.statTrak ? 1 : 0,
-          souvenir: i.souvenir ? 1 : 0,
+        name: recipe.name, description: recipe.description,
+        type: recipe.type || 'virtual', rarity: recipe.rarity,
+        targetRarity: recipe.targetRarity || recipe.target_rarity,
+        isStatTrak: recipe.isStatTrak, avgWearNorm: recipe.avgWearNorm,
+        avgTargetWear: recipe.avgTargetWear,
+        parentId: recipe.parentId || null,
+        outcomeSummary: recipe.outcomeSummary ? JSON.stringify(recipe.outcomeSummary) : null,
+        items: (recipe.items || []).map((i: any, idx: number) => ({
+          paint_index: i.paintIndex || i.paint_index || 0,
+          weapon_id: i.weaponId || i.weapon_id || 0,
+          wear_float: i.wearFloat || i.wear_float || 0,
+          asset_id: i.assetId || i.asset_id || null,
+          stattrak: i.stattrak ? 1 : 0, souvenir: i.souvenir ? 1 : 0,
           position: i.position ?? idx,
         })),
       });
       return { ...saved, items: RecipeRepo.getItems(saved.id) };
+    } catch (err: any) { return { error: err.message }; }
+  });
+
+  // ── Replace existing recipe ──
+  ipcMain.handle('recipe:replace', async (_e, params: { id: number; recipe: any }) => {
+    try {
+      RecipeRepo.updateItems(params.id, (params.recipe.items || []).map((i: any, idx: number) => ({
+        paint_index: i.paintIndex || i.paint_index || 0,
+        weapon_id: i.weaponId || i.weapon_id || 0,
+        wear_float: i.wearFloat || i.wear_float || 0,
+        asset_id: i.assetId || i.asset_id || null,
+        stattrak: i.stattrak ? 1 : 0, souvenir: i.souvenir ? 1 : 0,
+        position: i.position ?? idx,
+      })));
+      return { success: true };
+    } catch (err: any) { return { error: err.message }; }
+  });
+
+  // ── Delete ──
+  ipcMain.handle(IPC_CHANNELS.RECIPE_DELETE, async (_e, id: number) => {
+    // Cascade delete children
+    const children = RecipeRepo.getByParent(id);
+    for (const c of children) RecipeRepo.delete(c.id);
+    RecipeRepo.delete(id);
+    return { success: true };
+  });
+
+  // ── Export / Import ──
+  ipcMain.handle(IPC_CHANNELS.RECIPE_EXPORT, async (_e, id: number) => {
+    const data = RecipeRepo.exportJson(id);
+    return data ? JSON.stringify(data, null, 2) : null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RECIPE_IMPORT, async (_e, json: string) => {
+    try {
+      const data = JSON.parse(json);
+      if (!data.version || !data.name || !data.items) return { error: '无效格式' };
+      const saved = RecipeRepo.create({
+        name: data.name, rarity: data.rarity, targetRarity: data.targetRarity,
+        type: data.type || 'virtual', isStatTrak: data.isStatTrak,
+        avgWearNorm: data.avgWearNorm,
+        items: (data.items || []).map((i: any, idx: number) => ({
+          paint_index: i.paintIndex, weapon_id: i.weaponId,
+          wear_float: i.wearFloat, asset_id: i.assetId || null,
+          stattrak: i.statTrak ? 1 : 0, souvenir: i.souvenir ? 1 : 0,
+          position: i.position ?? idx,
+        })),
+      });
+      return { ...saved, items: RecipeRepo.getItems(saved.id) };
+    } catch (err: any) { return { error: err.message }; }
+  });
+
+  // ── Autocomplete: search skins by name ──
+  ipcMain.handle('tradeup:autocomplete', async (_e, query: string) => {
+    if (!query || query.length < 1) return [];
+    const skins = csgoResolver.getAllSkins();
+    const q = query.toLowerCase();
+    return skins
+      .filter(s => s.nameZh.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+      .slice(0, 20);
+  });
+
+  // ── Auto-sub-recipe generation ──
+  ipcMain.handle('recipe:auto-sub', async (_e, parentId: number) => {
+    try {
+      const { generateSubRecipes } = require('../services/recipe-auto-sub.service');
+      return generateSubRecipes(parentId);
     } catch (err: any) {
-      return { error: err.message };
+      return { success: false, error: err.message, subRecipes: [] };
     }
   });
 }

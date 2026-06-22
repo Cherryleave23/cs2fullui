@@ -2,6 +2,7 @@ import { dbAll, dbGet, dbRun, saveDatabase } from '../connection';
 
 export interface RecipeRow {
   id: number;
+  parent_id: number | null;
   name: string;
   description: string | null;
   type: string;
@@ -9,6 +10,7 @@ export interface RecipeRow {
   target_rarity: string;
   is_stattrak: number;
   avg_wear_norm: number | null;
+  avg_target_wear: number | null;
   outcome_summary: string | null;
   tags: string | null;
   created_at: string;
@@ -47,14 +49,17 @@ export const RecipeRepo = {
     targetRarity: string;
     isStatTrak?: boolean;
     avgWearNorm?: number | null;
+    avgTargetWear?: number | null;
+    parentId?: number | null;
     outcomeSummary?: string | null;
     tags?: string[] | null;
     items: Omit<RecipeItemRow, 'id' | 'recipe_id'>[];
   }): RecipeRow {
     dbRun(
-      `INSERT INTO recipes (name, description, type, rarity, target_rarity, is_stattrak, avg_wear_norm, outcome_summary, tags)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO recipes (parent_id, name, description, type, rarity, target_rarity, is_stattrak, avg_wear_norm, avg_target_wear, outcome_summary, tags)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        params.parentId ?? null,
         params.name,
         params.description ?? null,
         params.type ?? 'virtual',
@@ -62,6 +67,7 @@ export const RecipeRepo = {
         params.targetRarity,
         params.isStatTrak ? 1 : 0,
         params.avgWearNorm ?? null,
+        params.avgTargetWear ?? null,
         params.outcomeSummary ?? null,
         params.tags ? JSON.stringify(params.tags) : null,
       ]
@@ -115,7 +121,56 @@ export const RecipeRepo = {
     saveDatabase();
   },
 
-  /** Get items for a recipe */
+  /** Get all recipes that are children of a parent */
+  getByParent(parentId: number): RecipeRow[] {
+    return dbAll<RecipeRow>('SELECT * FROM recipes WHERE parent_id = ? ORDER BY created_at', [parentId]);
+  },
+
+  /** Find duplicate recipe by name + rarity + item keys */
+  findDuplicate(params: {
+    name: string;
+    rarity: string;
+    paintKeys: string; // "paint1|weapon1,paint2|weapon2,..." sorted
+  }): RecipeRow | null {
+    const candidates = dbAll<RecipeRow>(
+      'SELECT * FROM recipes WHERE name = ? AND rarity = ? AND parent_id IS NULL',
+      [params.name, params.rarity]
+    );
+    for (const r of candidates) {
+      const items = this.getItems(r.id);
+      const existingKeys = items.map(i => `${i.paint_index}|${i.weapon_id}`).sort().join(',');
+      if (existingKeys === params.paintKeys) return r;
+    }
+    return null;
+  },
+
+  /** Get full recipe tree: parent recipes with children */
+  getTree(): Array<RecipeRow & { children: RecipeRow[] }> {
+    const parents = dbAll<RecipeRow>(
+      'SELECT * FROM recipes WHERE parent_id IS NULL ORDER BY updated_at DESC'
+    );
+    return parents.map(p => ({
+      ...p,
+      children: this.getByParent(p.id),
+    }));
+  },
+
+  /** Replace items for a recipe */
+  updateItems(recipeId: number, items: Omit<RecipeItemRow, 'id' | 'recipe_id'>[]): void {
+    dbRun('DELETE FROM recipe_items WHERE recipe_id = ?', [recipeId]);
+    if (items.length > 0) {
+      const stmt = require('../connection').getDatabase().prepare(
+        `INSERT INTO recipe_items (recipe_id, paint_index, weapon_id, wear_float, asset_id, stattrak, souvenir, position)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const item of items) {
+        stmt.run([recipeId, item.paint_index, item.weapon_id, item.wear_float,
+          item.asset_id ?? null, item.stattrak, item.souvenir, item.position]);
+      }
+      stmt.free();
+    }
+    saveDatabase();
+  },
   getItems(recipeId: number): RecipeItemRow[] {
     return dbAll<RecipeItemRow>(
       'SELECT * FROM recipe_items WHERE recipe_id = ? ORDER BY position',
