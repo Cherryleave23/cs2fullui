@@ -106,3 +106,64 @@ IPC 方法必须在 `src/preload/index.ts` 声明，channel 必须与主进程 `
 - DB 返回 snake_case → `toCamel()` 映射
 - 写入后必须 `saveDatabase()`
 - 批量操作用 `BEGIN TRANSACTION` / `COMMIT` / `ROLLBACK`
+
+## 九、Steam 登录可靠性
+
+### 登录重试 — 解决 CM 服务器随机不可达
+
+**问题**: Steam 有 100+ CM 服务器，steam-user 从 top 5 随机选一个。国内代理下部分 CM 可达、部分不可达，导致间歇性登录失败。
+
+**解决**: 封装 retry loop，每次重试创建新的 SteamUser 实例（强制重新获取 CM 列表 + 重新随机选取）：
+
+```ts
+async login(params: LoginParams, retries = 2): Promise<LoginResult> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, 2000)); // 等 2s
+    }
+    const result = await this._doLogin(params);
+    if (result.success) return result;
+    // 只重试网络错误，不重试认证错误
+    const isNetwork = result.error?.includes('超时') || result.error?.includes('ETIMEDOUT')
+      || result.error?.includes('ECONNRESET') || result.error?.includes('disconnected');
+    if (!isNetwork) return result;
+    if (attempt < retries) {
+      // 重建实例 → 重新选 CM
+      this.client = new SteamUser({ enablePicsCache: true, webCompatibilityMode: true, autoRelogin: true });
+    }
+  }
+  return { success: false, error: '多次尝试后仍无法连接' };
+}
+```
+
+### 代理 DNS — socks5:// vs socks5h://
+
+Steam 域名在国内被 DNS 污染。Node.js 的 `SocksProxyAgent` 默认做**本地 DNS 解析**（解析到被墙 IP 再走代理）。
+
+```
+socks5://127.0.0.1:10808   → 本地 DNS → 被墙 IP → 代理连被墙 IP → ❌
+socks5h://127.0.0.1:10808  → 代理端 DNS → 正确 IP → ✅
+```
+
+必须用 `socks5h://` 让代理服务器做 DNS 解析。
+
+### 多账号登录
+
+所有有 refresh_token 的账号可同时保持 CM 连接。但 Steam 限制同一 IP 只能有一个 GC 连接，所以需要 `AccountManager` 管理 GC 切换：
+
+```
+loginAllSaved()  → 遍历账号 → 各自 logOn() → 保持在线
+connectGC(id)    → 旧 active: gamesPlayed([]) → 新 active: gamesPlayed([730])
+```
+
+### Non-fatal 错误日志节流
+
+代理不稳时 `Request timed out` 会频繁出现。`autoRelogin: true` 自动处理重连，但日志需要节流：
+
+```ts
+private _logThrottled(key: string, msg: string, interval = 60000) {
+  const now = Date.now();
+  const last = this._lastNonFatalLog.get(key) || 0;
+  if (now - last > interval) { console.log(msg); this._lastNonFatalLog.set(key, now); }
+}
+```
