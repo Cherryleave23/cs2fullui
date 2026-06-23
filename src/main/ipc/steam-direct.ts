@@ -22,7 +22,7 @@ export function getCsgo(): any {
 }
 
 export function registerSteamDirect(): void {
-  // ── Wire event forwarding for a bot (called BEFORE login to catch events) ──
+  // ── Wire event forwarding for a bot ──
   function wireBotEvents(bot: any): void {
     bot.on('loggedOn', (steamId: string) => {
       sendStatus('logged_in');
@@ -52,21 +52,20 @@ export function registerSteamDirect(): void {
     });
   }
 
-  // Wire events for ALL currently tracked bots (so status updates for any account)
-  function wireAllBots(): void {
-    for (const state of accountManager.listStates()) {
-      wireBotEvents(state.bot);
-    }
+  // Register callback: whenever AccountManager creates a new bot, auto-wire events.
+  // This guarantees events are captured even during loginAllSaved() where bots are created mid-flight.
+  accountManager.onBotCreated((_steamId: string, bot: any) => {
+    wireBotEvents(bot);
+  });
+  // Wire any bots that already exist (e.g., if this module loaded after bot creation)
+  for (const state of accountManager.listStates()) {
+    wireBotEvents(state.bot);
   }
 
   // ── AUTO-LOGIN all saved accounts on startup ──
   ipcMain.handle('steam:auto-login', async () => {
     try {
-      // Wire events FIRST (before login, so we catch loggedOn/GC events)
-      wireAllBots();
       const loggedIn = await accountManager.loginAllSaved();
-      // Wire again in case new bots were created during login
-      wireAllBots();
       return { success: true, count: loggedIn.length, activeSteamId: accountManager.getActiveSteamId() };
     } catch (err: any) { return { success: false, error: err.message }; }
   });

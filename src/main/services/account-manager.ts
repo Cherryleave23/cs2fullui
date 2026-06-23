@@ -15,9 +15,15 @@ interface AccountState {
   gcReady: boolean;
 }
 
+export type BotCreatedCallback = (steamId: string, bot: SteamBotService) => void;
+
 class AccountManager {
   private accounts = new Map<string, AccountState>();
   private activeSteamId: string | null = null;
+  private _onBotCreated: BotCreatedCallback | null = null;
+
+  /** Register a callback invoked whenever a new bot is created via getOrCreate */
+  onBotCreated(cb: BotCreatedCallback): void { this._onBotCreated = cb; }
 
   // ═══════════════════════════════════════════
   //  Account creation & retrieval
@@ -30,6 +36,7 @@ class AccountManager {
       state = { bot, steamId, accountName: '', loggedIn: false, gcReady: false };
       this.accounts.set(steamId, state);
       this._bindBotEvents(state);
+      if (this._onBotCreated) this._onBotCreated(steamId, bot);
     }
     return state.bot;
   }
