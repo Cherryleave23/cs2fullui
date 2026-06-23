@@ -18,12 +18,16 @@ const RARITY_ORDER = ['消费级', '工业级', '军规级', '受限级', '保�
 
 /**
  * Collection → target rarity → output skin list
- * This is populated from CSGO-API colelctions.json.
- * Without downloaded data, a minimal built-in reference is used.
+ * Populated from CSGO-API all.json collection-set entries via loadCollectionData().
  */
-const COLLECTION_OUTPUTS: Record<string, Record<string, { name: string; marketHashName: string }[]>> = {
-  // Built-in minimal reference — extended when CSGO-API data is loaded
-};
+const COLLECTION_OUTPUTS: Record<string, Record<string, {
+  name: string;
+  marketHashName: string;
+  /** Minimum possible float for this output skin (0–1) */
+  minFloat: number;
+  /** Maximum possible float for this output skin (0–1) */
+  maxFloat: number;
+}[]>> = {};
 
 export interface SimInputItem {
   assetId?: string;
@@ -163,27 +167,33 @@ export function simulateTradeUp(items: SimInputItem[]): SimulationResult {
 
     if (outputs.length > 0) {
       // Known outputs — distribute probability evenly
+      // Correct float formula: lerp(output.minFloat, output.maxFloat, avgWearNorm)
       const perOutputProb = collectionProb / outputs.length;
       for (const output of outputs) {
+        const range = output.maxFloat - output.minFloat;
+        const estFloat = range > 0
+          ? output.minFloat + avgWearNorm * range
+          : output.minFloat;
         outcomes.push({
           name: output.name,
           marketHashName: output.marketHashName,
           collection,
           probability: perOutputProb,
-          estWearFloat: lerpOutputFloat(collection, avgWearNorm),
-          estWearCategory: getWearCategory(lerpOutputFloat(collection, avgWearNorm)).nameZh,
+          estWearFloat: Math.round(estFloat * 100000) / 100000,
+          estWearCategory: getWearCategory(estFloat).nameZh,
           rarity: targetRarity,
         });
       }
     } else {
-      // Unknown outputs — show as a grouped entry
+      // Unknown outputs — use a generic range estimate (most skins fall in 0–0.8)
+      const genericFloat = avgWearNorm * 0.78 + 0.02;
       outcomes.push({
         name: `${collection} (${targetRarityZh})`,
         nameZh: `${collection} (${targetRarityZh})`,
         collection,
         probability: collectionProb,
-        estWearFloat: lerpOutputFloat(collection, avgWearNorm),
-        estWearCategory: estimateWearFromNorm(avgWearNorm),
+        estWearFloat: Math.round(genericFloat * 100000) / 100000,
+        estWearCategory: getWearCategory(genericFloat).nameZh,
         rarity: targetRarity,
       });
     }
@@ -205,7 +215,8 @@ export function simulateTradeUp(items: SimInputItem[]): SimulationResult {
 }
 
 /**
- * Load collection output data from CSGO-API collections.json
+ * Load collection output data from CSGO-API all.json collection-set entries.
+ * Each skin in a collection's `contains` array provides min_float / max_float.
  */
 export function loadCollectionData(collectionsData: any[]): void {
   for (const coll of collectionsData) {
@@ -221,6 +232,8 @@ export function loadCollectionData(collectionsData: any[]): void {
       COLLECTION_OUTPUTS[collName][rarityName].push({
         name: skin.name,
         marketHashName: skin.market_hash_name || '',
+        minFloat: typeof skin.min_float === 'number' ? skin.min_float : 0,
+        maxFloat: typeof skin.max_float === 'number' ? skin.max_float : 1,
       });
     }
   }
@@ -239,18 +252,3 @@ function emptyResult(inputs: SimInputItem[]): Omit<SimulationResult, 'success'> 
   };
 }
 
-/** Estimate output float from avg_wear_norm (simplified: typical output range 0-0.8) */
-function lerpOutputFloat(_collection: string, norm: number): number {
-  // Simplified: output float = norm * 0.8 + 0.02
-  // Full implementation would look up per-skin min/max from CSGO-API data
-  return norm * 0.78 + 0.02;
-}
-
-/** Map avg_wear_norm to a wear category */
-function estimateWearFromNorm(norm: number): string {
-  if (norm < 0.07) return '崭新出厂';
-  if (norm < 0.15) return '略有磨损';
-  if (norm < 0.38) return '久经沙场';
-  if (norm < 0.45) return '破损不堪';
-  return '战痕累累';
-}
