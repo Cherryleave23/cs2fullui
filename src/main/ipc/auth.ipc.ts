@@ -144,6 +144,12 @@ export function registerAuthIpc(): void {
     }
   });
 
+  //  DISCONNECT GC entirely
+  ipcMain.handle('auth:disconnect-gc', async () => {
+    accountManager.disconnectGC();
+    return { success: true };
+  });
+
   // ═══════════════════════════════════════
   //  NICKNAME / DELETE / PROXY
   // ═══════════════════════════════════════

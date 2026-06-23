@@ -28,6 +28,7 @@ const electronAPI = {
     loginAll: () => ipcRenderer.invoke('auth:login-all'),
     switchAccount: (steamId: string) =>
       ipcRenderer.invoke('auth:switch', steamId),
+    disconnectGC: () => ipcRenderer.invoke('auth:disconnect-gc'),
     updateNickname: (params: { steamId: string; nickname: string }) =>
       ipcRenderer.invoke('auth:update-nickname', params),
     deleteAccount: (steamId: string) =>

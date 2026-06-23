@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { Layout, Menu, Typography, Tag, Space } from 'antd';
+import { Layout, Menu, Typography, Tag, Space, Popover, Button, message } from 'antd';
 import {
   PieChartOutlined,
   UnorderedListOutlined,
@@ -67,11 +67,19 @@ const App: React.FC = () => {
     return () => unsubs.forEach(fn => fn?.());
   }, []);
 
+  const [gcPopoverOpen, setGcPopoverOpen] = useState(false);
   const handleSwitchAccount = async (sid: string) => {
     await window.electronAPI?.auth.switchAccount?.(sid);
-    setAccountName(sid);
+    setGcPopoverOpen(false);
     const list = await window.electronAPI?.auth.getAccounts?.() || [];
     setAccounts(list as any);
+    message.success('GC 已切换');
+  };
+  const handleDisconnectGC = async () => {
+    await window.electronAPI?.auth.disconnectGC?.();
+    setStatus('logged_in');
+    setGcPopoverOpen(false);
+    message.info('GC 已断开');
   };
 
   return (
@@ -135,9 +143,47 @@ const App: React.FC = () => {
               <Tag color={status === 'idle' ? 'default' : 'green'} style={{ flex: 1, textAlign: 'center', fontSize: 11 }}>
                 Steam: {status === 'idle' ? '离线' : status === 'connecting' ? '连接中' : '已连接'}
               </Tag>
-              <Tag color={status === 'gc_ready' ? 'green' : 'default'} style={{ flex: 1, textAlign: 'center', fontSize: 11 }}>
-                GC: {status === 'gc_ready' ? '已连接' : '未连接'}
-              </Tag>
+              <Popover
+                open={gcPopoverOpen}
+                onOpenChange={setGcPopoverOpen}
+                trigger="click"
+                placement="top"
+                content={
+                  <div style={{ minWidth: 160 }}>
+                    <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>
+                      选择 GC 连接账号 (仅一个)
+                    </div>
+                    {accounts.filter((a: any) => a.isOnline).map((a: any) => (
+                      <div key={a.steamId}
+                        onClick={() => handleSwitchAccount(a.steamId)}
+                        style={{
+                          padding: '4px 8px', borderRadius: 4, cursor: 'pointer',
+                          marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6,
+                          background: a.isActive ? 'rgba(24,144,255,0.1)' : 'transparent',
+                        }}>
+                        <span style={{
+                          width: 8, height: 8, borderRadius: '50%',
+                          background: a.gcReady ? '#52c41a' : '#faad14',
+                        }} />
+                        <span style={{ fontSize: 12 }}>{a.nickname || a.accountName}</span>
+                        {a.isActive && <Tag color="blue" style={{ fontSize: 10, marginLeft: 'auto' }}>当前</Tag>}
+                      </div>
+                    ))}
+                    {accounts.filter((a: any) => a.isOnline).length === 0 && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>没有在线的账号</Text>
+                    )}
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 8, paddingTop: 8 }}>
+                      <Button size="small" block danger onClick={handleDisconnectGC}>
+                        断开 GC 连接
+                      </Button>
+                    </div>
+                  </div>
+                }>
+                <Tag color={status === 'gc_ready' ? 'green' : 'default'}
+                  style={{ flex: 1, textAlign: 'center', fontSize: 11, cursor: 'pointer' }}>
+                  GC: {status === 'gc_ready' ? '已连接 ▼' : '未连接 ▼'}
+                </Tag>
+              </Popover>
             </div>
             {steamId && (
               <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, display: 'block', textAlign: 'center' }}>
