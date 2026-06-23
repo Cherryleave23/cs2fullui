@@ -616,3 +616,163 @@ csgo.removeFromCasket('casketId', 'itemId');
 13. **ST/SV names must match all.json format** — `AK-47（StatTrak™）| 翔鹤`.
 14. **SOCKS proxy forces WebSocket protocol** — incompatible with TCP transport.
 15. **SIM modes exit before Steam connection** — `--sim-*` / `--load-recipe` / `--list-recipes`.
+
+---
+
+## CS2-UIfull — Electron 桌面应用开发关键经验
+
+本项目为 Electron + React + Ant Design + sql.js + electron-vite (esbuild) 构建
+的 CS2 炼金管理器。以下为开发中遇到的**高频陷阱和已验证解决方案**。
+
+---
+
+### 一、esbuild 打包铁律
+
+**绝对禁止 `require()` 动态引用。**
+
+esbuild 打包后模块路径完全变化，`require('../db/seed')` 等动态引用
+在打包产物中必报 `MODULE_NOT_FOUND`。所有模块引用必须使用顶层静态 `import`：
+
+```ts
+// ❌ 错误 — 打包后 crash
+const { getWearCategory } = require('../db/seed');
+
+// ✅ 正确
+import { getWearCategory } from '../db/seed';
+```
+
+排查方法：`grep -r "require(" src/` 检查是否还有残留的 require。
+
+---
+
+### 二、CS2 汰换磨损公式 (已验证)
+
+```
+1. norm_i = clamp((wear_i - min_i) / (max_i - min_i), 0, 1)
+2. avgNorm = sum(norm_i) / 10
+3. outputFloat = outputSkin.minFloat + avgNorm × (outputSkin.maxFloat - outputSkin.minFloat)
+4. outputWearCategory = getWearCategory(outputFloat)
+5. 名称: marketHashName 去掉固定磨损后缀 + 加上实际磨损后缀
+```
+
+**关键修正**：旧实现用 `norm × 0.78 + 0.02` 对所有产出物统一计算，
+完全忽略了不同皮肤的 float 范围差异。必须从 all.json 取
+每个皮肤的 `min_float`/`max_float` 计算。
+
+---
+
+### 三、all.json 数据结构关键发现
+
+| 条目类型 | Key 格式 | 包含字段 | 不包含 |
+|---------|---------|---------|--------|
+| 皮肤详情 | `skin-{id}_{variant}` | `paint_index`, `weapon.weapon_id`, `min_float`, `max_float`, `market_hash_name`, `rarity`, `image` | `collections` (空!) |
+| 收藏品引用 | `collection-set-*` | `contains[]`: `{id, name, paint_index, rarity}` | `min_float`, `max_float`, `market_hash_name`, `weapon_id` |
+
+**结论：两套 key 体系互不重叠，必须跨引用。**
+- 收藏品产出 → 用 `paint_index` 前缀匹配 `skinByKey` 获取完整数据
+- 收藏品归属 → 用 `name` 去重后缀后匹配 `nameToColl` 反向索引
+
+```ts
+// 跨引用范式
+const byPaintIndex = new Map<string, Entry>();
+for (const [key, entry] of skinByKey) {
+  const paintIdx = key.split('|')[0];  // "303|30" → "303"
+  if (!byPaintIndex.has(paintIdx)) byPaintIndex.set(paintIdx, entry);
+}
+const full = byPaintIndex.get(String(ref.paint_index));
+// full 现在有 min_float, max_float, market_hash_name
+```
+
+---
+
+### 四、库存物品名称修复
+
+**问题**：`skinByKey` 每 `paint_index|weapon_id` 只存一个变体
+(非 ST/SV 的第一个，通常是崭新出厂)。导致所有库存物品都显示为 FN。
+
+**解决**：在 `resolveOne` 中根据实际 `paintWear` 修正名称和 market_hash_name：
+
+```ts
+const w = getWearCategory(paintWear);
+const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
+rName = stripWear(rName) + ' (' + w.nameZh + ')';
+rHash = stripWear(rHash) + ' (' + w.name + ')';
+```
+
+**这同时修复了价格查询** — 价格按 market_hash_name 匹配，
+名称不对则查不到正确价格。ST/SV 的 market_hash_name 还需加上
+`'StatTrak™ '` 或 `'Souvenir '` 前缀。
+
+---
+
+### 五、价格系统常见陷阱
+
+**#1 跳过逻辑反转**
+```ts
+// ❌ 错误：取过期条目 → 排除它们 → 反而拉取新鲜条目
+const cached = getCache({ olderThanMinutes: 60 });
+const needFetch = mhns.filter(n => !cachedSet.has(n));
+
+// ✅ 正确：取新鲜条目 → 排除它们 → 拉取过期和未缓存的
+const freshSet = new Set(all.filter(isFresh).map(c => c.item_hash_name));
+const needFetch = mhns.filter(n => !freshSet.has(n));
+```
+
+**#2 输入物品缺少 marketHashName**
+模拟时渲染进程只发 `paintIndex + weaponId + wearFloat`，不含 `marketHashName`。
+IPC 层必须自行解析，否则成本计算 (`calcProfit`) 返回 null。
+
+```ts
+const skin = csgoResolver.resolveSkinByKey(paintIndex, defIndex);
+const wear = getWearCategory(wearFloat);
+const mhn = stripWear(skin.marketHashName) + ' (' + wear.name + ')';
+```
+
+**#3 产出 price 用错磨损**
+产出 `marketHashName` 来自 collection-set 数据，后缀固定为 FN。
+必须替换为实际预估磨损：
+
+```ts
+const correctMhn = output.marketHashName
+  .replace(/\s*[（(][^)）]*[)）]\s*$/, '') + ' (' + getWearCategory(estFloat).name + ')';
+```
+
+**#4 Token 未配置时静默失败**
+`csqaService.fetch()` 无 token 时直接返回 `{0, 0}`，不报错。
+IPC 层应在调用前检查并返回明确提示。
+
+---
+
+### 六、子配方自动生成算法
+
+**核心约束**：
+1. 收藏品分布严格一致 (父 3A+7B → 子必须 3A+7B)
+2. 产出磨损等级集合完全一致 (`estWearCategory` 集合匹配)
+3. 归一化磨损尽量贴近父配方
+4. 同父配方下 assetId 不重复 (父为 real 时父的物品也禁止引用)
+5. 尽量多组合
+
+**关键 Bug 修复**：
+- 统计收藏品数量时用 `collectionsUsed`(去重集合) 导致只选 2 件
+  → 改用 `simInputs`(10 条目原始数组) 统计
+- 父配方模拟的 `minFloat/maxFloat` 硬编码 0-1 导致 norm 基准错误
+  → 用 `resolveSkinByKey` 取实际值
+- 单轮只试一种组合 → 引入 offset 多次尝试机制
+
+---
+
+### 七、Preload IPC 路由
+
+所有 IPC 方法必须在 `src/preload/index.ts` 中正确声明。
+渲染进程只能通过 `window.electronAPI` 调用预加载暴露的方法。
+`ipcRenderer.invoke(channel, ...)` 的 channel 必须与主进程
+`ipcMain.handle(channel, ...)` 完全一致。
+
+---
+
+### 八、sql.js 注意事项
+
+- 不支持 `DEFAULT datetime('now')` — 只在 INSERT VALUES 中使用
+- DB 返回 snake_case，应用层 `toCamel()` 映射
+- 写入后必须调用 `saveDatabase()` 持久化
+- 批量操作用 `BEGIN TRANSACTION` / `COMMIT` / `ROLLBACK`
