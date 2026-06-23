@@ -6,6 +6,8 @@ import { TradeUpRepo } from '../db/repositories/tradeup.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
 import { PriceRepo } from '../db/repositories/price.repo';
 import { csqaService } from '../services/csqa.service';
+import { csgoResolver } from '../services/csgoapi-resolver.service';
+import { getWearCategory } from '../db/seed';
 import type { SteamBotService } from '../services/steam-bot.service';
 
 /** 计算收益数据：总成本、EV、ROI、保本率 */
@@ -86,22 +88,33 @@ export function registerTradeUpIpc(botGetter: () => SteamBotService | null): voi
       }
 
       // Convert ResolvedItem → SimInputItem
-      const inputs = simItems.map((i: any) => ({
-        assetId: i.assetId || '',
-        name: i.resolvedName || i.name || 'Unknown',
-        nameZh: i.resolvedNameZh || i.nameZh,
-        rarity: i.rarityName || i.rarity || 'Unknown',
-        rarityZh: i.rarityNameZh || i.rarityZh,
-        paintIndex: i.paintIndex ?? 0,
-        defIndex: i.defIndex ?? 0,
-        wearFloat: i.paintWear ?? i.wearFloat ?? 0,
-        minFloat: i.minFloat ?? 0,
-        maxFloat: i.maxFloat ?? 1,
-        collection: i.collectionName || i.collection || '未知',
-        weaponType: i.weaponType,
-        isStatTrak: i.isStatTrak || i.is_stattrak || false,
-        isSouvenir: i.isSouvenir || i.is_souvenir || false,
-      }));
+      // Resolve marketHashName for price lookup (renderer sends paintIndex+weaponId+wear but not mhn)
+      const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/g, '');
+      const inputs = simItems.map((i: any) => {
+        const skin = csgoResolver.resolveSkinByKey(i.paintIndex ?? 0, i.defIndex ?? 0);
+        const wearFloat = i.paintWear ?? i.wearFloat ?? 0;
+        const wear = getWearCategory(wearFloat);
+        const mhn = skin?.marketHashName
+          ? stripWear(skin.marketHashName) + ' (' + wear.name + ')'
+          : '';
+        return {
+          assetId: i.assetId || '',
+          name: i.resolvedName || i.name || 'Unknown',
+          nameZh: i.resolvedNameZh || i.nameZh,
+          rarity: i.rarityName || i.rarity || 'Unknown',
+          rarityZh: i.rarityNameZh || i.rarityZh,
+          paintIndex: i.paintIndex ?? 0,
+          defIndex: i.defIndex ?? 0,
+          wearFloat,
+          minFloat: i.minFloat ?? 0,
+          maxFloat: i.maxFloat ?? 1,
+          collection: i.collectionName || i.collection || '未知',
+          weaponType: i.weaponType,
+          isStatTrak: i.isStatTrak || i.is_stattrak || false,
+          isSouvenir: i.isSouvenir || i.is_souvenir || false,
+          marketHashName: mhn,
+        };
+      });
 
       const result = simulateTradeUp(inputs);
 
