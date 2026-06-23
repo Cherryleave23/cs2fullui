@@ -1,5 +1,6 @@
 import { RecipeRepo, type RecipeItemRow } from '../db/repositories/recipe.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
+import { PriceRepo } from '../db/repositories/price.repo';
 import { simulateTradeUp, type SimInputItem } from './tradeup-simulator';
 import { csgoResolver } from './csgoapi-resolver.service';
 import type { ResolvedItem } from '../../shared/types/item';
@@ -50,6 +51,54 @@ function buildCombination(
   }
 
   return sel;
+}
+
+/** Calculate profit for a set of input items + simulation outcomes */
+function calcSubProfit(sel: ResolvedItem[], outcomes: any[]): string | null {
+  const needFetch: string[] = [];
+  // Gather input prices
+  let totalCost = 0;
+  for (const item of sel) {
+    const mhn = item.marketHashName || '';
+    if (!mhn) continue;
+    const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+    const price = cached?.[0]?.current_price;
+    if (price != null) totalCost += price;
+    else needFetch.push(mhn);
+  }
+  // Gather output prices
+  for (const out of outcomes) {
+    const mhn = out.marketHashName || '';
+    if (!mhn) continue;
+    const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+    if (!cached?.[0]?.current_price) needFetch.push(mhn);
+  }
+  if (totalCost <= 0) return null;
+  // Compute EV
+  let ev = 0;
+  for (const out of outcomes) {
+    const mhn = out.marketHashName || '';
+    if (!mhn || !out.probability) continue;
+    const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+    const price = cached?.[0]?.current_price;
+    if (price != null) ev += price * out.probability;
+  }
+  // Break-even rate
+  let breakEvenProb = 0;
+  for (const out of outcomes) {
+    const mhn = out.marketHashName || '';
+    if (!mhn || !out.probability) continue;
+    const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+    const price = cached?.[0]?.current_price;
+    if (price != null && price >= totalCost) breakEvenProb += out.probability;
+  }
+  return JSON.stringify({
+    totalCost: Math.round(totalCost * 100) / 100,
+    expectedValue: Math.round(ev * 100) / 100,
+    profit: Math.round((ev - totalCost) * 100) / 100,
+    roi: totalCost > 0 ? Math.round((ev - totalCost) / totalCost * 10000) / 100 : 0,
+    breakEvenRate: Math.round(breakEvenProb * 10000) / 100,
+  });
 }
 
 /** Convert ResolvedItem → SimInputItem for simulation */
@@ -219,6 +268,8 @@ export function generateSubRecipes(parentId: number): GenerationResult {
       for (const s of sel) usedIds.add(s.assetId);
 
       const childIdx = subs.length + 1;
+      const profitJson = calcSubProfit(sel, subSim.outcomes);
+
       RecipeRepo.create({
         name: parent.name + ' - 子方案' + childIdx,
         type: 'real',
@@ -229,6 +280,7 @@ export function generateSubRecipes(parentId: number): GenerationResult {
         avgTargetWear: parentNorm,
         parentId,
         outcomeSummary: JSON.stringify(subSim.outcomes),
+        profitJson,
         items: sel.map((item, idx) => ({
           paint_index: item.paintIndex,
           weapon_id: item.defIndex,
