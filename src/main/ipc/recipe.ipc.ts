@@ -5,6 +5,7 @@ import { InventoryRepo } from '../db/repositories/inventory.repo';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
 import { generateSubRecipes } from '../services/recipe-auto-sub.service';
 import { getWearCategory } from '../db/seed';
+import { dbRun, saveDatabase } from '../db/connection';
 
 const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
 
@@ -58,7 +59,7 @@ export function registerRecipeIpc(): void {
         avgTargetWear: recipe.avgTargetWear,
         parentId: recipe.parentId || null,
         outcomeSummary: recipe.outcomeSummary ? JSON.stringify(recipe.outcomeSummary) : null,
-        profitJson: recipe.profit ? JSON.stringify(recipe.profit) : null,
+        profitJson: recipe.profitJson || recipe.profit ? JSON.stringify(recipe.profitJson || recipe.profit) : null,
         items: (recipe.items || []).map((i: any, idx: number) => ({
           paint_index: i.paintIndex || i.paint_index || 0,
           weapon_id: i.weaponId || i.weapon_id || 0,
@@ -83,6 +84,11 @@ export function registerRecipeIpc(): void {
         stattrak: i.stattrak ? 1 : 0, souvenir: i.souvenir ? 1 : 0,
         position: i.position ?? idx,
       })));
+      // Also update profit_json if provided
+      if (params.recipe.profitJson != null) {
+        dbRun('UPDATE recipes SET profit_json = ? WHERE id = ?', [params.recipe.profitJson, params.id]);
+        saveDatabase();
+      }
       return { success: true };
     } catch (err: any) { return { error: err.message }; }
   });

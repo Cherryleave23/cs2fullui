@@ -11,7 +11,8 @@ const { Title, Text } = Typography;
 
 interface RecipeData {
   id: number; name: string; type: string; rarity: string; target_rarity: string;
-  is_stattrak: number; avg_wear_norm: number | null; outcome_summary: string | null;
+  is_stattrak: number; avg_wear_norm: number | null;
+  outcome_summary: string | null; profit_json: string | null;
   created_at: string; children: RecipeData[]; parent_id?: number;
   items?: any[];
 }
@@ -243,6 +244,23 @@ const RecipePage: React.FC = () => {
               {r.avg_wear_norm != null && (
                 <Text style={{ fontSize: 11 }}>磨损: {(r.avg_wear_norm * 100).toFixed(1)}%</Text>
               )}
+              {/* Profit summary from stored data */}
+              {(() => {
+                try {
+                  const p = r.profit_json ? (typeof r.profit_json === 'string' ? JSON.parse(r.profit_json) : r.profit_json) : null;
+                  if (!p) return null;
+                  const color = p.profit >= 0 ? '#52c41a' : '#ff4d4f';
+                  return (
+                    <Space size={6} style={{ marginLeft: 8 }}>
+                      <Text style={{ fontSize: 10, color: '#888' }}>成本<Text style={{ color: '#333', fontWeight: 500 }}>¥{Number(p.totalCost).toFixed(0)}</Text></Text>
+                      <Text style={{ fontSize: 10, color: '#888' }}>EV<Text style={{ color: '#333', fontWeight: 500 }}>¥{Number(p.expectedValue).toFixed(0)}</Text></Text>
+                      <Text style={{ fontSize: 10, color }}>利润<Text style={{ fontWeight: 500 }}>¥{Number(p.profit).toFixed(0)}</Text></Text>
+                      <Text style={{ fontSize: 10, color }}>ROI<Text style={{ fontWeight: 500 }}>{Number(p.roi).toFixed(1)}%</Text></Text>
+                      <Text style={{ fontSize: 10, color: '#888' }}>保本<Text style={{ color: '#333' }}>{Number(p.breakEvenRate).toFixed(1)}%</Text></Text>
+                    </Space>
+                  );
+                } catch { return null; }
+              })()}
             </Space>
 
             {/* Right: actions */}
@@ -316,40 +334,27 @@ const RecipePage: React.FC = () => {
                 }
                 return (
                   <div style={{ marginTop: 8 }}>
-                    <Text strong style={{ fontSize: 13 }}>模拟产出结果:</Text>
+                    <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>模拟产出结果:</Text>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     {[...grouped.entries()].map(([coll, items]) => (
-                      <div key={coll} style={{ marginTop: 4 }}>
-                        <Text style={{ fontSize: 11, color: '#666' }}>{coll}:</Text>
-                        <table style={{ fontSize: 11, marginLeft: 16, borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ borderBottom: '1px solid #e8e8e8' }}>
-                              <th style={{ textAlign: 'left', padding: '2px 8px' }}>物品</th>
-                              <th style={{ textAlign: 'right', padding: '2px 8px' }}>概率</th>
-                              <th style={{ textAlign: 'right', padding: '2px 8px' }}>预估磨损</th>
-                              <th style={{ textAlign: 'left', padding: '2px 8px' }}>磨损类别</th>
-                              <th style={{ textAlign: 'right', padding: '2px 8px' }}>价格</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {items.map((o: any, idx: number) => {
-                              const oPrice = o.marketHashName ? priceMap[o.marketHashName] : undefined;
-                              return (
-                              <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                                <td style={{ padding: '2px 8px' }}>{o.nameZh || o.name}</td>
-                                <td style={{ textAlign: 'right', padding: '2px 8px' }}>{(o.probability * 100).toFixed(1)}%</td>
-                                <td style={{ textAlign: 'right', padding: '2px 8px', fontFamily: 'monospace' }}>
-                                  ~{o.estWearFloat?.toFixed(6) || '-'}
-                                </td>
-                                <td style={{ padding: '2px 8px' }}>{o.estWearCategory || '-'}</td>
-                                <td style={{ textAlign: 'right', padding: '2px 8px', color: oPrice != null ? '#52c41a' : '#888' }}>
-                                  {oPrice != null ? `¥${oPrice.toFixed(2)}` : '-'}
-                                </td>
-                              </tr>
-                            )})}
-                          </tbody>
-                        </table>
+                      <div key={coll} style={{ flex: '1 1 260px', minWidth: 220, maxWidth: 380,
+                        border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>
+                        <Text strong style={{ fontSize: 11, color: '#666', display: 'block', marginBottom: 4 }}>{coll}</Text>
+                        {items.map((o: any, idx: number) => {
+                          const oPrice = o.marketHashName ? priceMap[o.marketHashName] : undefined;
+                          return (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '1px 0', fontSize: 11 }}>
+                            <Text style={{ flex: 1, fontSize: 11 }} ellipsis>{o.nameZh || o.name}</Text>
+                            <Text style={{ fontSize: 10, color: '#52c41a', minWidth: 50, textAlign: 'right' }}>
+                              {oPrice != null ? `¥${oPrice.toFixed(2)}` : '-'}
+                            </Text>
+                            <Text style={{ fontSize: 10, color: '#888' }}>{o.estWearCategory}</Text>
+                            <Text style={{ fontSize: 10, color: '#888', width: 32, textAlign: 'right' }}>{(o.probability * 100).toFixed(1)}%</Text>
+                          </div>
+                        )})}
                       </div>
                     ))}
+                    </div>
                     {(detail.avg_wear_norm ?? r.avg_wear_norm) != null && (
                       <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
                         平均归一化磨损: {((detail.avg_wear_norm ?? r.avg_wear_norm) * 100).toFixed(1)}%

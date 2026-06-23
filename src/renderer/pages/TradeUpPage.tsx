@@ -57,6 +57,7 @@ const TradeUpPage: React.FC = () => {
       targetRarity: targetRarity || targetRarityZh,
       avgWearNorm,
       outcomeSummary: outcomes,
+      profitJson: profit ? JSON.stringify(profit) : null,
       items: filled.map((item, idx) => ({
         paintIndex: item!.paintIndex,
         weaponId: item!.weaponId,
@@ -74,6 +75,7 @@ const TradeUpPage: React.FC = () => {
         content: result.message,
         onOk: async () => {
           await window.electronAPI.recipe.replace({ id: result.id, recipe: {
+            profitJson: profit ? JSON.stringify(profit) : null,
             items: filled.map((item, idx) => ({
               paintIndex: item!.paintIndex, weaponId: item!.weaponId,
               wearFloat: item!.wearFloat, assetId: item!.assetId || null,
@@ -148,7 +150,8 @@ const TradeUpPage: React.FC = () => {
             <Text type="secondary">归一化磨损: {(avgWearNorm * 100).toFixed(1)}%</Text>
           </Space>
         }>
-          {/* Group by collection */}
+          {/* Group by collection — horizontal flex-wrap layout */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           {(() => {
             const grouped = new Map<string, typeof outcomes>();
             for (const o of outcomes) {
@@ -159,26 +162,31 @@ const TradeUpPage: React.FC = () => {
             return [...grouped.entries()].map(([coll, items]) => {
               const totalProb = items.reduce((s, o) => s + o.probability, 0);
               return (
-                <div key={coll} style={{ marginBottom: 12 }}>
-                  <Text strong style={{ fontSize: 12 }}>
+                <div key={coll} style={{ flex: '1 1 280px', minWidth: 240, maxWidth: 420, marginBottom: 8,
+                  border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}>
+                  <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
                     {coll} ({(totalProb * 100).toFixed(0)}%)
                   </Text>
                   {items.map((o, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                      <Text style={{ flex: 1, fontSize: 13 }} ellipsis>{o.nameZh || o.name}</Text>
-                      <Text style={{ fontSize: 11, color: '#888', minWidth: 60, textAlign: 'right' }}>
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}>
+                      <Text style={{ flex: 1, fontSize: 12 }} ellipsis>{o.nameZh || o.name}</Text>
+                      <Text style={{ fontSize: 10, color: '#52c41a', minWidth: 55, textAlign: 'right' }}>
                         {o.price != null ? `¥${o.price.toFixed(2)}` : '-'}
                       </Text>
-                      <Text style={{ fontSize: 11, color: '#888' }}>~{o.estWearFloat.toFixed(6)}</Text>
-                      <Text style={{ fontSize: 11 }}>{o.estWearCategory}</Text>
+                      <Text style={{ fontSize: 10, color: '#888' }}>{o.estWearCategory}</Text>
+                      <Text style={{ fontSize: 10, fontFamily: 'monospace', color: '#888' }}>
+                        ~{o.estWearFloat.toFixed(4)}
+                      </Text>
                       <Progress percent={Math.round(o.probability * 100)} size="small"
-                        style={{ width: 80, minWidth: 60 }} />
+                        style={{ width: 50, minWidth: 40 }} strokeWidth={6} showInfo={false} />
+                      <Text style={{ fontSize: 10, width: 32, textAlign: 'right' }}>{(o.probability * 100).toFixed(1)}%</Text>
                     </div>
                   ))}
                 </div>
               );
             });
           })()}
+          </div>
 
           {/* Profit Summary */}
           {profit && (
