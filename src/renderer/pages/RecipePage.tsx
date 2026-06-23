@@ -15,6 +15,7 @@ interface RecipeData {
   outcome_summary: string | null; profit_json: string | null;
   created_at: string; children: RecipeData[]; parent_id?: number;
   items?: any[];
+  tradable_ok?: boolean; tradable_latest?: string | null;
 }
 
 const RecipePage: React.FC = () => {
@@ -30,30 +31,14 @@ const RecipePage: React.FC = () => {
   const [importJson, setImportJson] = useState('');
   const [executeResult, setExecuteResult] = useState<{ success: boolean; items: any[]; error?: string } | null>(null);
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
-  // assetId → tradableAfter for checking recipe execute readiness
-  const [tradableMap, setTradableMap] = useState<Record<string, string>>({});
-  // recipeId → { ok, latest } for execute eligibility
-  const [recipeTradable, setRecipeTradable] = useState<Record<number, { ok: boolean; latest: string | null }>>({});
 
   const load = async () => {
     setLoading(true);
     try {
-      // Load inventory for tradable checks
-      const invResult: any = await window.electronAPI.inventory.getItems();
-      const tMap: Record<string, string> = {};
-      if (invResult?.items) {
-        for (const item of invResult.items) {
-          if (item.assetId) tMap[item.assetId] = item.tradableAfter || '';
-        }
-      }
-      setTradableMap(tMap);
-
       const list: any = await window.electronAPI.recipe.list();
       const parents = Array.isArray(list) ? list.filter((r: any) => !r.parent_id) : [];
       setRecipes(parents);
       loadRecipePrices(parents);
-      // Check tradable status for all recipes (parents + children)
-      checkAllTradable(list, tMap);
     } catch { setRecipes([]); }
     setLoading(false);
   };
@@ -61,31 +46,6 @@ const RecipePage: React.FC = () => {
   useEffect(() => { load(); }, []);
 
   // Check tradable status for all recipes (recursively)
-  const checkAllTradable = async (list: RecipeData[], tMap: Record<string, string>) => {
-    const status: Record<number, { ok: boolean; latest: string | null }> = {};
-    const checkOne = async (r: RecipeData) => {
-      if (r.type !== 'real') { status[r.id] = { ok: true, latest: null }; return; }
-      try {
-        const full: any = await window.electronAPI.recipe.get(r.id);
-        const items = full?.items || [];
-        let ok = true; let latest: string | null = null; let latestTime = 0;
-        const now = Date.now();
-        for (const item of items) {
-          const aid = item.asset_id || item.assetId;
-          if (!aid) continue;
-          const ta = tMap[aid];
-          if (ta) {
-            const t = new Date(ta).getTime();
-            if (t > now) { ok = false; if (t > latestTime) { latestTime = t; latest = ta; } }
-          }
-        }
-        status[r.id] = { ok, latest };
-        if (r.children) for (const child of r.children) await checkOne(child);
-      } catch { status[r.id] = { ok: true, latest: null }; }
-    };
-    for (const r of list) await checkOne(r);
-    setRecipeTradable(prev => ({ ...prev, ...status }));
-  };
 
   // Load cached prices for a set of marketHashNames
   const loadPrices = async (mhns: string[]) => {
@@ -283,15 +243,13 @@ const RecipePage: React.FC = () => {
               </Tag>
               <Tag>{r.rarity} → {r.target_rarity}</Tag>
               {r.is_stattrak === 1 && <Tag color="#cf6a32">ST</Tag>}
-              {r.type === 'real' && (() => {
-                const ts = recipeTradable[r.id];
-                if (ts === undefined) return null;
-                return ts.ok
+              {r.type === 'real' && r.tradable_ok !== undefined && (
+                r.tradable_ok
                   ? <Tag color="green" style={{ fontSize: 10 }}>可执行</Tag>
-                  : <Tooltip title={ts.latest ? `最晚: ${new Date(ts.latest).toLocaleString('zh-CN')}` : '部分物品不可交易'}>
+                  : <Tooltip title={r.tradable_latest ? `最晚: ${new Date(r.tradable_latest).toLocaleString('zh-CN')}` : '部分物品不可交易'}>
                       <Tag color="orange" style={{ fontSize: 10 }}>不可交易</Tag>
-                    </Tooltip>;
-              })()}
+                    </Tooltip>
+              )}
               {r.avg_wear_norm != null && (
                 <Text style={{ fontSize: 11 }}>磨损: {(r.avg_wear_norm * 100).toFixed(1)}%</Text>
               )}
@@ -318,24 +276,24 @@ const RecipePage: React.FC = () => {
             <Space size={4}>
               <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)}>编辑</Button>
               {r.type === 'real' && (() => {
-                const ts = recipeTradable[r.id];
-                const canExec = ts?.ok ?? true;
+                const canExec = r.tradable_ok !== undefined ? r.tradable_ok : true;
+                const latest = r.tradable_latest;
                 const btn = (
                   <Button size="small" type="primary" danger icon={<ThunderboltOutlined />}
                     disabled={!canExec}
                     onClick={() => {
                       if (!canExec) {
-                        message.warning(ts?.latest
-                          ? `配方中有物品暂不可交易，最晚可交易时间: ${new Date(ts.latest).toLocaleString('zh-CN')}`
+                        message.warning(latest
+                          ? `配方中有物品暂不可交易，最晚可交易时间: ${new Date(latest).toLocaleString('zh-CN')}`
                           : '部分物品不可交易');
                         return;
                       }
                       handleExecute(r);
                     }}>执行汰换</Button>
                 );
-                if (!canExec && ts?.latest) {
+                if (!canExec && latest) {
                   return (
-                    <Tooltip title={`最晚可交易: ${new Date(ts.latest).toLocaleString('zh-CN')}`}>
+                    <Tooltip title={`最晚可交易: ${new Date(latest).toLocaleString('zh-CN')}`}>
                       {btn}
                     </Tooltip>
                   );

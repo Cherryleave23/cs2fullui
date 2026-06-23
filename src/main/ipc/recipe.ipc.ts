@@ -10,9 +10,48 @@ import { dbRun, saveDatabase } from '../db/connection';
 const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
 
 export function registerRecipeIpc(): void {
-  // ── List all recipes (parent + children) ──
+  // ── List all recipes (parent + children) with tradable status ──
   ipcMain.handle(IPC_CHANNELS.RECIPE_LIST, async () => {
-    return RecipeRepo.getTree();
+    const tree = RecipeRepo.getTree();
+
+    // Build assetId → tradableAfter map from inventory
+    const tMap = new Map<string, string>();
+    const invItems = InventoryRepo.getAllItems();
+    for (const item of invItems) {
+      if (item.assetId) tMap.set(item.assetId, item.tradableAfter || '');
+    }
+
+    // Check tradable status for a recipe
+    const now = Date.now();
+    function checkTradable(recipe: any): { ok: boolean; latest: string | null } {
+      if (recipe.type !== 'real') return { ok: true, latest: null };
+      const items = RecipeRepo.getItems(recipe.id);
+      let ok = true, latest: string | null = null, latestTime = 0;
+      for (const item of items) {
+        const aid = item.asset_id;
+        if (!aid) continue;
+        const ta = tMap.get(aid);
+        if (ta) {
+          const t = new Date(ta).getTime();
+          if (t > now) { ok = false; if (t > latestTime) { latestTime = t; latest = ta; } }
+        }
+      }
+      return { ok, latest };
+    }
+
+    // Enrich tree with tradable status
+    for (const parent of tree) {
+      (parent as any).tradable_ok = checkTradable(parent).ok;
+      (parent as any).tradable_latest = checkTradable(parent).latest;
+      if (parent.children) {
+        for (const child of parent.children) {
+          (child as any).tradable_ok = checkTradable(child).ok;
+          (child as any).tradable_latest = checkTradable(child).latest;
+        }
+      }
+    }
+
+    return tree;
   });
 
   // ── Get single recipe with items ──
