@@ -53,14 +53,25 @@ export function registerSteamDirect(): void {
   }
 
   // Register callback: whenever AccountManager creates a new bot, auto-wire events.
-  // This guarantees events are captured even during loginAllSaved() where bots are created mid-flight.
   accountManager.onBotCreated((_steamId: string, bot: any) => {
     wireBotEvents(bot);
   });
-  // Wire any bots that already exist (e.g., if this module loaded after bot creation)
+  // Wire any bots that already exist
   for (const state of accountManager.listStates()) {
     wireBotEvents(state.bot);
   }
+
+  // Listen for GC switches to update renderer status
+  accountManager.on('gcSwitch', (steamId: string, accountName: string) => {
+    // GC switched: old account disconnected from GC, new account connecting
+    const state = accountManager.getState(steamId);
+    send({ type: 'gc-switched', steamId, accountName });
+    // If the new account already has inventory ready, send status
+    if (state?.gcReady) {
+      sendStatus('gc_ready');
+      sendGcStatus('HAVE_SESSION');
+    }
+  });
 
   // ── AUTO-LOGIN all saved accounts on startup ──
   ipcMain.handle('steam:auto-login', async () => {

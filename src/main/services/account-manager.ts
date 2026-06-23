@@ -3,6 +3,7 @@
  * All accounts can be logged in simultaneously (CM connection).
  * Only ONE account connects to CS2 GC at a time (per Steam's limit).
  */
+import { EventEmitter } from 'events';
 import { SteamBotService, applyProxy } from './steam-bot.service';
 import { AccountRepo, type AccountRow } from '../db/repositories/account.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
@@ -17,7 +18,7 @@ interface AccountState {
 
 export type BotCreatedCallback = (steamId: string, bot: SteamBotService) => void;
 
-class AccountManager {
+class AccountManager extends EventEmitter {
   private accounts = new Map<string, AccountState>();
   private activeSteamId: string | null = null;
   private _onBotCreated: BotCreatedCallback | null = null;
@@ -118,15 +119,13 @@ class AccountManager {
         try { oldState.bot.client.gamesPlayed([]); } catch (_) {}
         oldState.gcReady = false;
       }
-      // Unbind inventory sync
-      const unsub = this.inventoryUnsubs.get(this.activeSteamId);
-      if (unsub) { unsub(); this.inventoryUnsubs.delete(this.activeSteamId); }
     }
 
     // Connect new account to GC
     newState.bot.client.gamesPlayed([730]);
     this.activeSteamId = steamId;
     AccountRepo.setActive(steamId);
+    this.emit('gcSwitch', steamId, newState.accountName);
 
     // Note: Inventory sync binding is handled by steam-direct.ts wireBotEvents
     // (which listens for inventoryReady and calls bindInventorySync)
