@@ -4,6 +4,7 @@ import {
   UserOutlined, LockOutlined, GlobalOutlined, DatabaseOutlined,
   BgColorsOutlined, InfoCircleOutlined, SaveOutlined,
   CheckCircleOutlined, WarningOutlined, KeyOutlined,
+  LoginOutlined,
 } from '@ant-design/icons';
 const { Title, Paragraph, Text } = Typography;
 
@@ -234,9 +235,30 @@ const SettingsPage: React.FC = () => {
   };
 
   const accountTab = (
-    <Card bordered={false}>
-      <MinimalLogin />
-    </Card>
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card bordered={false}>
+        <Space>
+          <Button type="primary" icon={<LoginOutlined />}
+            onClick={async () => {
+              message.loading({ content: '正在登录所有已保存的账号...', key: 'loginAll', duration: 0 });
+              const res: any = await window.electronAPI.auth.loginAll();
+              if (res?.success) {
+                message.success({ content: `已登录 ${res.count} 个账号`, key: 'loginAll' });
+              } else {
+                message.error({ content: res?.error || '登录失败', key: 'loginAll' });
+              }
+            }}>
+            一键登录所有账号
+          </Button>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            使用保存的 Refresh Token 同时登录所有账号
+          </Text>
+        </Space>
+      </Card>
+      <Card bordered={false}>
+        <MinimalLogin />
+      </Card>
+    </Space>
   );
 
   const proxyTab = (
