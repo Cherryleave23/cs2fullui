@@ -45,6 +45,17 @@ export class SteamBotService extends EventEmitter {
   private _gcReady = false;
   private _pendingLogin: PendingLogin | null = null;
   private _guardCallback: ((code: string) => void) | null = null;
+  private _lastNonFatalLog = new Map<string, number>();
+  private _connectAttempts = 0;
+
+  private _logThrottled(key: string, msg: string, interval = 30000): void {
+    const now = Date.now();
+    const last = this._lastNonFatalLog.get(key) || 0;
+    if (now - last > interval) {
+      console.log(msg);
+      this._lastNonFatalLog.set(key, now);
+    }
+  }
 
   constructor() {
     super();
@@ -132,13 +143,15 @@ export class SteamBotService extends EventEmitter {
     // ── disconnected: clear expired token, non-fatal → autoRelogin handles ──
     this.client.on('disconnected', (eresult: number, msg: string) => {
       const name = SteamUser.EResult?.[eresult] || String(eresult);
-      console.log(`[SteamBot] Disconnected: ${msg} (${name})`);
+      // Throttle non-critical disconnects to avoid log spam
       if (eresult === 84 || eresult === 63) {
+        console.log(`[SteamBot] Disconnected: ${msg} (${name})`);
         const sid = this._steamId || this.client.steamID?.getSteamID64?.();
         if (sid && this._accountName) {
           AccountRepo.upsert({ steamId: sid, accountName: this._accountName, refreshToken: '' });
-          console.log(`[SteamBot] Cleared expired token: ${sid}`);
         }
+      } else {
+        this._logThrottled('disconnect', `[SteamBot] Disconnected: ${msg} (${name})`, 60000);
       }
       if (this._pendingLogin && !this._pendingLogin.loginDone) {
         clearTimeout(this._pendingLogin.timeout);
@@ -150,15 +163,18 @@ export class SteamBotService extends EventEmitter {
 
     // ── error: fatal → clear token (eresult 84/63), non-fatal → keep session ──
     this.client.on('error', (err: any) => {
-      console.error(`[SteamBot] Error: ${err.message || err} (eresult=${err.eresult})`);
       const isTokenExpired = err.eresult === 84 || err.eresult === 63;
       const isSessionConflict = err.eresult === 6;
 
       if (isTokenExpired || isSessionConflict) {
+        console.error(`[SteamBot] Auth error: ${err.message} (eresult=${err.eresult})`);
         const sid = this._steamId || this.client.steamID?.getSteamID64?.();
         if (sid && this._accountName) {
           AccountRepo.upsert({ steamId: sid, accountName: this._accountName, refreshToken: '' });
         }
+      } else {
+        // Throttle non-fatal network errors (proxy instability)
+        this._logThrottled('network', `[SteamBot] Network: ${err.message}`, 60000);
       }
 
       if (this._pendingLogin && !this._pendingLogin.loginDone) {
@@ -167,14 +183,12 @@ export class SteamBotService extends EventEmitter {
         this._pendingLogin = null;
       }
 
-      // Only treat token/auth errors as fatal; keep session on others
       if (isTokenExpired || err.eresult === 15 || err.eresult === 5) {
         this.emit('fatalError', err);
       } else if (isSessionConflict) {
         console.log(`[SteamBot] LoggedInElsewhere — autoRelogin will reconnect`);
-      } else {
-        console.log(`[SteamBot] Non-fatal error, keeping session alive`);
       }
+      // Non-fatal: autoRelogin handles reconnection silently
     });
 
     // ── GC events ──
