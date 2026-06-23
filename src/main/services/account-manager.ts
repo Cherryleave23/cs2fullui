@@ -6,7 +6,6 @@
 import { SteamBotService, applyProxy } from './steam-bot.service';
 import { AccountRepo, type AccountRow } from '../db/repositories/account.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
-import { bindInventorySync } from './inventory-sync.service';
 
 interface AccountState {
   bot: SteamBotService;
@@ -19,7 +18,6 @@ interface AccountState {
 class AccountManager {
   private accounts = new Map<string, AccountState>();
   private activeSteamId: string | null = null;
-  private inventoryUnsubs = new Map<string, () => void>();
 
   // ═══════════════════════════════════════════
   //  Account creation & retrieval
@@ -123,16 +121,8 @@ class AccountManager {
     this.activeSteamId = steamId;
     AccountRepo.setActive(steamId);
 
-    // Bind inventory sync for the new active account
-    const activeAcc = AccountRepo.getBySteamId(steamId);
-    if (activeAcc) {
-      const unsub = bindInventorySync(newState.bot, activeAcc.id ?? 0, {
-        onSyncComplete: (count) => {
-          console.log(`[AccountManager] Inventory synced for ${steamId}: ${count} items`);
-        },
-      });
-      this.inventoryUnsubs.set(steamId, unsub);
-    }
+    // Note: Inventory sync binding is handled by steam-direct.ts wireBotEvents
+    // (which listens for inventoryReady and calls bindInventorySync)
   }
 
   /** Disconnect GC from active account (keep login) */
@@ -143,8 +133,6 @@ class AccountManager {
       try { state.bot.client.gamesPlayed([]); } catch (_) {}
       state.gcReady = false;
     }
-    const unsub = this.inventoryUnsubs.get(this.activeSteamId);
-    if (unsub) { unsub(); this.inventoryUnsubs.delete(this.activeSteamId); }
   }
 
   // ═══════════════════════════════════════════
@@ -162,15 +150,11 @@ class AccountManager {
     if (this.activeSteamId === steamId) {
       this.activeSteamId = null;
     }
-    // Clean up inventory
     const acc = AccountRepo.getBySteamId(steamId);
     if (acc) {
       InventoryRepo.clearAll(acc.id ?? 0);
       AccountRepo.delete(steamId);
     }
-    // Unbind inventory sync
-    const unsub = this.inventoryUnsubs.get(steamId);
-    if (unsub) { unsub(); this.inventoryUnsubs.delete(steamId); }
   }
 
   // ═══════════════════════════════════════════

@@ -22,38 +22,52 @@ export function getCsgo(): any {
 }
 
 export function registerSteamDirect(): void {
+  // ── Wire event forwarding for a bot (called BEFORE login to catch events) ──
+  function wireBotEvents(bot: any): void {
+    bot.on('loggedOn', (steamId: string) => {
+      sendStatus('logged_in');
+      send({ type: 'logged-in', steamId, accountName: bot.accountName });
+    });
+    bot.on('steamGuardNeeded', (data: any) => send({ type: 'guard', ...data }));
+    bot.on('fatalError', (err: any) => { sendStatus('error'); send({ type: 'error', message: err.message || String(err) }); });
+    bot.on('refreshToken', () => send({ type: 'token-saved' }));
+    bot.on('inventoryReady', (raw: any[]) => {
+      sendGcStatus('HAVE_SESSION');
+      const loose = raw.filter((i: any) => !i.casket_id);
+      if (csgoResolver.load() && loose.length > 0) {
+        const resolved = csgoResolver.resolveAll(loose);
+        InventoryRepo.clearAll();
+        for (const item of resolved) InventoryRepo.upsertItem(item);
+      }
+      send({ type: 'inventory-synced', count: loose.length });
+    });
+    bot.on('disconnected', (er: number, msg: string) => {
+      sendStatus('idle');
+      sendGcStatus('GC_GOING_DOWN');
+      send({ type: 'disconnected', eresult: er, msg });
+    });
+    bot.on('inventoryReady', () => {
+      if (unsubInventory) unsubInventory();
+      unsubInventory = bindInventorySync(bot, 0, { onSyncComplete: (count: number) => send({ type: 'inventory-synced', count }) });
+    });
+  }
+
+  // Wire events for ALL currently tracked bots (so status updates for any account)
+  function wireAllBots(): void {
+    for (const state of accountManager.listStates()) {
+      wireBotEvents(state.bot);
+    }
+  }
+
   // ── AUTO-LOGIN all saved accounts on startup ──
   ipcMain.handle('steam:auto-login', async () => {
     try {
+      // Wire events FIRST (before login, so we catch loggedOn/GC events)
+      wireAllBots();
       const loggedIn = await accountManager.loginAllSaved();
-      const active = accountManager.getActive();
-      const bot = active;
-      // Wire status events for the active bot
-      if (bot) {
-        bot.on('loggedOn', (steamId: string) => {
-          sendStatus('logged_in');
-          send({ type: 'logged-in', steamId, accountName: bot.accountName });
-        });
-        bot.on('steamGuardNeeded', (data: any) => send({ type: 'guard', ...data }));
-        bot.on('fatalError', (err: any) => { sendStatus('error'); send({ type: 'error', message: err.message || String(err) }); });
-        bot.on('refreshToken', () => send({ type: 'token-saved' }));
-        bot.on('inventoryReady', (raw: any[]) => {
-          sendGcStatus('HAVE_SESSION');
-          const loose = raw.filter((i: any) => !i.casket_id);
-          if (csgoResolver.load() && loose.length > 0) {
-            const resolved = csgoResolver.resolveAll(loose);
-            InventoryRepo.clearAll();
-            for (const item of resolved) InventoryRepo.upsertItem(item);
-          }
-          send({ type: 'inventory-synced', count: loose.length });
-        });
-        bot.on('disconnected', (er: number, msg: string) => { sendStatus('idle'); sendGcStatus('GC_GOING_DOWN'); send({ type: 'disconnected', eresult: er, msg }); });
-        bot.on('inventoryReady', () => {
-          if (unsubInventory) unsubInventory();
-          unsubInventory = bindInventorySync(bot, 0, { onSyncComplete: (count: number) => send({ type: 'inventory-synced', count }) });
-        });
-      }
-      return { success: true, count: loggedIn.length, activeSteamId: active?.steamId };
+      // Wire again in case new bots were created during login
+      wireAllBots();
+      return { success: true, count: loggedIn.length, activeSteamId: accountManager.getActiveSteamId() };
     } catch (err: any) { return { success: false, error: err.message }; }
   });
 
