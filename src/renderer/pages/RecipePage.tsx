@@ -23,6 +23,8 @@ const RecipePage: React.FC = () => {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [expandedChildIds, setExpandedChildIds] = useState<Set<number>>(new Set());
   const [expandedDetails, setExpandedDetails] = useState<Record<number, any>>({});
+  // Parents whose children list is visible (independent of parent detail expansion)
+  const [childrenVisible, setChildrenVisible] = useState<Set<number>>(new Set());
   const [importOpen, setImportOpen] = useState(false);
   const [importJson, setImportJson] = useState('');
   const [executeResult, setExecuteResult] = useState<{ success: boolean; items: any[]; error?: string } | null>(null);
@@ -179,24 +181,22 @@ const RecipePage: React.FC = () => {
   const renderRecipe = (r: RecipeData, isChild = false) => {
     const hasChildren = r.children && r.children.length > 0;
     const isExpanded = isChild ? expandedChildIds.has(r.id) : expandedIds.has(r.id);
+    const showChildren = isChild ? false : (isExpanded || childrenVisible.has(r.id));
 
     const toggleExpand = async () => {
-      if (isChild) {
-        setExpandedChildIds(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; });
-      } else {
-        setExpandedIds(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; });
-      }
+      const targetSet = isChild ? expandedChildIds : expandedIds;
+      const setter = isChild ? setExpandedChildIds : setExpandedIds;
+      setter(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; });
       // Load full recipe data (items + outcomes) if not already loaded
       if (!isExpanded && (!r.items || r.items.length === 0)) {
         const full: any = await window.electronAPI.recipe.get(r.id);
         if (full) {
           setExpandedDetails(prev => ({ ...prev, [r.id]: full }));
-          // Load prices for the items in this expanded recipe
+          // Load prices
           const mhns: string[] = [];
           for (const item of full.items || []) {
             if (item.marketHashName) mhns.push(item.marketHashName);
           }
-          // Also collect outcome marketHashNames
           const outcomes = full.outcome_summary;
           if (outcomes) {
             try {
@@ -208,6 +208,20 @@ const RecipePage: React.FC = () => {
           }
           await loadPrices(mhns);
         }
+      }
+    };
+
+    const toggleChildren = () => {
+      if (isExpanded) {
+        // Parent is already expanded, children are visible — just collapse parent
+        setExpandedIds(prev => { const next = new Set(prev); next.delete(r.id); return next; });
+      } else {
+        // Show children without expanding parent detail
+        setChildrenVisible(prev => {
+          const next = new Set(prev);
+          showChildren ? next.delete(r.id) : next.add(r.id);
+          return next;
+        });
       }
     };
 
@@ -243,9 +257,8 @@ const RecipePage: React.FC = () => {
                   onClick={() => handleAutoSub(r.id)}>自动配置子配方</Button>
               )}
               {!isChild && hasChildren && (
-                <Button size="small"
-                  onClick={() => setExpandedIds(prev => { const next = new Set(prev); isExpanded ? next.delete(r.id) : next.add(r.id); return next; })}>
-                  查看子配方 ({r.children.length})
+                <Button size="small" onClick={toggleChildren}>
+                  {showChildren ? <DownOutlined /> : <RightOutlined />} 子配方 ({r.children.length})
                 </Button>
               )}
               <Popconfirm title="确定删除？子配方也会被删除" onConfirm={() => handleDelete(r.id)}>
@@ -255,8 +268,8 @@ const RecipePage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Expanded: show items + outcomes + children */}
-        {isExpanded && (() => {
+        {/* Expanded: show parent items + outcomes (only when parent detail is expanded) */}
+        {isExpanded && !isChild && (() => {
           const detail = expandedDetails[r.id] || {};
           const items = detail.items || r.items || [];
           const outcomes = detail.outcome_summary || r.outcome_summary;
@@ -346,15 +359,16 @@ const RecipePage: React.FC = () => {
                 );
               } catch { return null; }
             })()}
-            {/* Children sub-recipes */}
-            {r.children && r.children.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <Text strong style={{ fontSize: 12 }}>子配方 ({r.children.length}):</Text>
-                {r.children.map(child => renderRecipe(child, true))}
-              </div>
-            )}
           </div>
         )})()}
+
+        {/* Children sub-recipes — visible when parent is expanded OR childrenVisible is toggled */}
+        {showChildren && hasChildren && (
+          <div style={{ marginTop: 8, marginLeft: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
+            <Text strong style={{ fontSize: 12 }}>子配方 ({r.children.length}):</Text>
+            {r.children.map(child => renderRecipe(child, true))}
+          </div>
+        )}
       </div>
     );
   };
