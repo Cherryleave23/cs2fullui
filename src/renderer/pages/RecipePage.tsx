@@ -46,6 +46,7 @@ const RecipePage: React.FC = () => {
           if (item.assetId) tMap[item.assetId] = item.tradableAfter || '';
         }
       }
+      console.log('[RecipePage] Inventory tradable map:', Object.keys(tMap).length, 'items, sample:', Object.entries(tMap).slice(0, 3));
       setTradableMap(tMap);
 
       const list: any = await window.electronAPI.recipe.list();
@@ -80,11 +81,13 @@ const RecipePage: React.FC = () => {
           }
         }
         status[r.id] = { ok, latest };
+        console.log(`[RecipePage] Tradable check: recipe ${r.name} (id=${r.id}) ok=${ok} latest=${latest} items=${items.length} foundIds=${items.filter((i: any) => tMap[i.asset_id || i.assetId]).length}/${items.length}`);
         // Also check children
         if (r.children) for (const child of r.children) await checkOne(child);
-      } catch { status[r.id] = { ok: true, latest: null }; }
+      } catch (err) { console.error(`[RecipePage] Tradable check failed for ${r.id}:`, err); status[r.id] = { ok: true, latest: null }; }
     };
     for (const r of list) await checkOne(r);
+    console.log('[RecipePage] Tradable status:', status);
     setRecipeTradable(prev => ({ ...prev, ...status }));
   };
 
