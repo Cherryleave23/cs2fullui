@@ -12,6 +12,8 @@ let unsubInventory: (() => void) | null = null;
 
 function w() { return BrowserWindow.getAllWindows()[0]; }
 function send(data: unknown) { w()?.webContents.send('push:steam-log', data); }
+function sendStatus(state: string) { w()?.webContents.send('push:steam-status', { state }); }
+function sendGcStatus(status: string) { w()?.webContents.send('push:gc-status', status); }
 
 /** Get GC accessor for inventory page */
 export function getCsgo(): any {
@@ -25,18 +27,21 @@ export function registerSteamDirect(): void {
 
   // Forward bot events to renderer
   bot.on('loggedOn', (steamId: string) => {
+    sendStatus('logged_in');
     send({ type: 'logged-in', steamId, accountName: bot.accountName });
   });
   bot.on('steamGuardNeeded', (data: any) => {
     send({ type: 'guard', ...data });
   });
   bot.on('fatalError', (err: any) => {
+    sendStatus('error');
     send({ type: 'error', message: err.message || String(err) });
   });
   bot.on('refreshToken', () => {
     send({ type: 'token-saved' });
   });
   bot.on('inventoryReady', (rawInventory: any[]) => {
+    sendGcStatus('HAVE_SESSION');
     // Sync inventory to DB
     const loose = rawInventory.filter((i: any) => !i.casket_id);
     if (csgoResolver.load() && loose.length > 0) {
@@ -48,6 +53,8 @@ export function registerSteamDirect(): void {
     send({ type: 'inventory-synced', count: loose.length });
   });
   bot.on('disconnected', (eresult: number, msg: string) => {
+    sendStatus('idle');
+    sendGcStatus('GC_GOING_DOWN');
     send({ type: 'disconnected', eresult, msg });
   });
 

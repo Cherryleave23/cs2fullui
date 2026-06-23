@@ -141,12 +141,10 @@ const App: React.FC = () => {
         >
           <Space size={16}>
             <Text style={{ fontSize: 12 }}>
-              Steam: <Tag color={status === 'idle' ? 'default' : 'green'} style={{ fontSize: 11 }}>{statusInfo.text}</Tag>
+              Steam: <Tag color={status === 'idle' ? 'default' : 'green'} style={{ fontSize: 11 }}>{status === 'idle' ? '离线' : status === 'connecting' ? '连接中' : '已连接'}</Tag>
             </Text>
             <Text style={{ fontSize: 12 }}>
-              GC: <Tag color={status === 'gc_ready' ? 'green' : 'default'} style={{ fontSize: 11 }}>
-                {status === 'gc_ready' ? '已连接' : '未连接'}
-              </Tag>
+              GC: <Tag color={status === 'gc_ready' ? 'green' : 'default'} style={{ fontSize: 11 }}>{status === 'gc_ready' ? '已连接' : '未连接'}</Tag>
             </Text>
           </Space>
           <Space size={16}>
