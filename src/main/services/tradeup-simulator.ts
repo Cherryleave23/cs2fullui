@@ -174,13 +174,18 @@ export function simulateTradeUp(items: SimInputItem[]): SimulationResult {
         const estFloat = range > 0
           ? output.minFloat + avgWearNorm * range
           : output.minFloat;
+        const estWearCat = getWearCategory(estFloat);
+        // Fix marketHashName: stored entry has fixed wear suffix, replace with actual
+        const correctMhn = output.marketHashName
+          ? output.marketHashName.replace(/\s*[（(][^)）]*[)）]\s*$/, '') + ' (' + estWearCat.name + ')'
+          : '';
         outcomes.push({
           name: output.name,
-          marketHashName: output.marketHashName,
+          marketHashName: correctMhn,
           collection,
           probability: perOutputProb,
           estWearFloat: Math.round(estFloat * 100000) / 100000,
-          estWearCategory: getWearCategory(estFloat).nameZh,
+          estWearCategory: estWearCat.nameZh,
           rarity: targetRarity,
         });
       }
