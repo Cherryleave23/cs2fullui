@@ -33,7 +33,8 @@ function buildCombination(
   for (const [coll, need] of parentCollCounts) {
     const items = sortedByColl.get(coll);
     if (!items || items.length < offset + need) {
-      return null; // not enough items in this collection — combination impossible
+      console.log(`[AutoSub] buildCombination: collection "${coll}" needs ${need}, has ${items?.length ?? 0}, offset=${offset} → impossible`);
+      return null;
     }
   }
 
@@ -94,7 +95,8 @@ export function generateSubRecipes(parentId: number): GenerationResult {
 
   if (!parentSim.success) return { success: false, subRecipes: [], error: 'Parent simulation failed: ' + (parentSim.error || 'unknown') };
 
-  const parentNorm = parent.avg_wear_norm ?? parentSim.avgWearNorm;
+  // Always use fresh simulation result — the stored DB value may be from before the float fix
+  const parentNorm = parentSim.avgWearNorm;
 
   // Collect parent output wear categories — sub-recipes must match this exactly
   const parentWearCats = new Set(parentSim.outcomes.map(o => o.estWearCategory));
@@ -105,6 +107,8 @@ export function generateSubRecipes(parentId: number): GenerationResult {
   for (const coll of parentSim.collectionsUsed) {
     parentCollCounts.set(coll, (parentCollCounts.get(coll) || 0) + 1);
   }
+  const requiredStr = [...parentCollCounts].map(([c, n]) => `${c}:${n}`).join(', ');
+  console.log('[AutoSub] Required distribution:', requiredStr);
 
   // ── 2. Find inventory candidates ──
   const allInv = InventoryRepo.getAllItems();
@@ -160,7 +164,12 @@ export function generateSubRecipes(parentId: number): GenerationResult {
 
     // Check total available
     let totalAvail = 0;
-    for (const items of sortedByColl.values()) totalAvail += items.length;
+    const collCounts: string[] = [];
+    for (const [coll, items] of sortedByColl) {
+      totalAvail += items.length;
+      collCounts.push(`${coll}:${items.length}`);
+    }
+    console.log(`[AutoSub] Round ${r}: ${totalAvail} available (${collCounts.join(', ')})`);
     if (totalAvail < 10) {
       console.log(`[AutoSub] Round ${r}: only ${totalAvail} items left, stopping`);
       break;
