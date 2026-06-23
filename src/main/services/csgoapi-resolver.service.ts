@@ -242,10 +242,13 @@ class CsgoapiResolver {
         if (isStatTrak) {
           rName = rName.replace(/\s*\|\s*/, '（StatTrak™） | ');
           rNameZh = rNameZh.replace(/\s*\|\s*/, '（StatTrak™） | ');
+          // market_hash_name uses English prefix with space
+          rHash = 'StatTrak™ ' + rHash;
         }
         if (isSouvenir) {
           rName = rName.replace(/\s*\|\s*/, '（纪念品） | ');
           rNameZh = rNameZh.replace(/\s*\|\s*/, '（纪念品） | ');
+          rHash = 'Souvenir ' + rHash;
         }
       }
     }
@@ -255,6 +258,14 @@ class CsgoapiResolver {
     if (rType === 'skin') {
       const w = getWearCategory(paintWear);
       wearCat = w.name; wearCatZh = w.nameZh;
+
+      // Fix name and market_hash_name: the stored entry is always one variant
+      // (typically 崭新出厂). Strip the wrong wear suffix and append the correct one.
+      const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/g, '');
+      rName = stripWear(rName) + ' (' + wearCatZh + ')';
+      rNameZh = stripWear(rNameZh) + ' (' + wearCatZh + ')';
+      // market_hash_name always uses English wear name
+      rHash = stripWear(rHash) + ' (' + wearCat + ')';
     }
 
     // Extra JSON (stickers on item)

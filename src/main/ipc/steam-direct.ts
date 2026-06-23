@@ -113,7 +113,7 @@ function bindEvents(c: any, g: any, accountName: string): void {
           // Sample: log first 3 raw items
           for (let i = 0; i < Math.min(3, loose.length); i++) {
             const raw = loose[i];
-            console.log(`[SteamDirect] Raw[${i}]: id=${raw.id} def=${raw.def_index} paint=${raw.paint_index} rarity=${raw.rarity} quality=${raw.quality} stickers=${raw.stickers?.length || 0}`);
+            console.log(`[SteamDirect] Raw[${i}]: id=${raw.id} def=${raw.def_index} paint=${raw.paint_index} rarity=${raw.rarity} quality=${raw.quality} wear=${raw.paint_wear} stickers=${raw.stickers?.length || 0}`);
           }
           // One-time sample: quality distribution
           if (!(globalThis as any)._qualityLogged) {
