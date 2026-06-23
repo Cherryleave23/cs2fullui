@@ -168,6 +168,46 @@ const MinimalLogin: React.FC = () => {
   );
 };
 
+// ── CSQAQ Token 配置 ──
+const CsqaTokenConfig: React.FC = () => {
+  const [token, setToken] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    window.electronAPI.price.getCsqaToken().then((r: any) => {
+      if (r?.token) setToken(r.token);
+    });
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await window.electronAPI.price.setCsqaToken(token);
+    setSaving(false);
+    message.success('CSQAQ Token 已保存');
+  };
+
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Title level={5}>CSQAQ API 配置</Title>
+      <Paragraph type="secondary">
+        CSQAQ 提供聚合市场价（Buff / 悠悠有品 / Steam），
+        需要 ApiToken 才能使用。从 CSQAQ 网站获取后填入即可。
+      </Paragraph>
+      <Input.Password
+        prefix={<KeyOutlined />}
+        value={token}
+        onChange={e => setToken(e.target.value)}
+        placeholder="输入 CSQAQ API Token"
+        size="large"
+        style={{ maxWidth: 400 }}
+      />
+      <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+        保存 Token
+      </Button>
+    </Space>
+  );
+};
+
 const SettingsPage: React.FC = () => {
   const [proxyForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -257,9 +297,16 @@ const SettingsPage: React.FC = () => {
     </Card>
   );
 
+  const priceTab = (
+    <Card bordered={false}>
+      <CsqaTokenConfig />
+    </Card>
+  );
+
   const items = [
     { key: 'account', label: <span><UserOutlined /> 账号</span>, children: accountTab },
     { key: 'proxy', label: <span><GlobalOutlined /> 代理</span>, children: proxyTab },
+    { key: 'price', label: <span><KeyOutlined /> 价格</span>, children: priceTab },
     { key: 'data', label: <span><DatabaseOutlined /> 数据</span>, children: dataTab },
     { key: 'appearance', label: <span><BgColorsOutlined /> 外观</span>, children: appearanceTab },
     { key: 'about', label: <span><InfoCircleOutlined /> 关于</span>, children: aboutTab },

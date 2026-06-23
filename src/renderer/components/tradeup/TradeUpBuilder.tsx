@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, Space, Button, Typography } from 'antd';
-import { ClearOutlined, ExperimentOutlined } from '@ant-design/icons';
+import { ClearOutlined, ExperimentOutlined, InboxOutlined } from '@ant-design/icons';
 import TradeUpSlot from './TradeUpSlot';
+import InventorySelectModal from './InventorySelectModal';
 import { useTradeUpStore } from '../../stores/useTradeUpStore';
 import { useInventoryStore } from '../../stores/useInventoryStore';
 
@@ -11,6 +12,7 @@ const TradeUpBuilder: React.FC = () => {
   const { slots, removeSlot, clearAll, simulating, setSimulationResult, setSimulating } =
     useTradeUpStore();
   const { selectedIds, items } = useInventoryStore();
+  const [selectOpen, setSelectOpen] = useState(false);
 
   const filledCount = slots.filter(Boolean).length;
   const canSimulate = filledCount === 10;
@@ -79,6 +81,13 @@ const TradeUpBuilder: React.FC = () => {
         <Space>
           <Button
             size="small"
+            onClick={() => setSelectOpen(true)}
+            icon={<InboxOutlined />}
+          >
+            从库存选择
+          </Button>
+          <Button
+            size="small"
             onClick={handleFillSelected}
             disabled={selectedIds.size === 0}
           >
@@ -136,6 +145,9 @@ const TradeUpBuilder: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* 库存选择弹窗 */}
+      <InventorySelectModal open={selectOpen} onClose={() => setSelectOpen(false)} />
     </Card>
   );
 };

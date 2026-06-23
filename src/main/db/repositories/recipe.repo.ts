@@ -52,12 +52,13 @@ export const RecipeRepo = {
     avgTargetWear?: number | null;
     parentId?: number | null;
     outcomeSummary?: string | null;
+    profitJson?: string | null;
     tags?: string[] | null;
     items: Omit<RecipeItemRow, 'id' | 'recipe_id'>[];
   }): RecipeRow {
     dbRun(
-      `INSERT INTO recipes (parent_id, name, description, type, rarity, target_rarity, is_stattrak, avg_wear_norm, avg_target_wear, outcome_summary, tags)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO recipes (parent_id, name, description, type, rarity, target_rarity, is_stattrak, avg_wear_norm, avg_target_wear, outcome_summary, profit_json, tags)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         params.parentId ?? null,
         params.name,
@@ -69,6 +70,7 @@ export const RecipeRepo = {
         params.avgWearNorm ?? null,
         params.avgTargetWear ?? null,
         params.outcomeSummary ?? null,
+        params.profitJson ?? null,
         params.tags ? JSON.stringify(params.tags) : null,
       ]
     );

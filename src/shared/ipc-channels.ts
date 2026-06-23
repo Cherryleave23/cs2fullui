@@ -46,6 +46,11 @@ export const IPC_CHANNELS = {
   DATA_GET_STATUS:          'data:get-status',
   DATA_CLEAR_CACHE:         'data:clear-cache',
 
+  // ── Settings ──
+  SETTINGS_GET_CSQA_TOKEN:  'settings:get-csqa-token',
+  SETTINGS_SET_CSQA_TOKEN:  'settings:set-csqa-token',
+  PRICE_FETCH_INVENTORY:    'price:fetch-inventory',
+
   // ── App ──
   APP_GET_VERSION:          'app:get-version',
   APP_OPEN_DATA_DIR:        'app:open-data-dir',

@@ -24,12 +24,16 @@ const AutocompleteSlot: React.FC<AutocompleteSlotProps> = ({ index }) => {
   const [searchText, setSearchText] = useState('');
   const [wearInput, setWearInput] = useState(item ? String(item.wearFloat) : '');
   const autoLockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wearRef = useRef<boolean>(false);
   const wearError = item && (parseFloat(wearInput) < item.minFloat || parseFloat(wearInput) > item.maxFloat);
 
   useEffect(() => {
-    if (item) {
+    if (item && !wearRef.current) {
       setSearchText(stripWear(item.nameZh || item.name));
-      setWearInput(String(item.wearFloat > 0 ? item.wearFloat : ''));
+      setWearInput(String(item.wearFloat != null ? item.wearFloat : ''));
+    } else if (!item) {
+      setSearchText('');
+      setWearInput('');
     }
   }, [item]);
 
@@ -85,6 +89,9 @@ const AutocompleteSlot: React.FC<AutocompleteSlotProps> = ({ index }) => {
     }
   };
 
+  const handleWearFocus = () => { wearRef.current = true; };
+  const handleWearBlur = () => { wearRef.current = false; };
+
   return (
     <div style={{
       width: 180, padding: 10, border: '1px solid #d9d9d9', borderRadius: 8,
@@ -111,6 +118,7 @@ const AutocompleteSlot: React.FC<AutocompleteSlotProps> = ({ index }) => {
           </Text>
           <Input size="small" placeholder="输入磨损值"
             value={wearInput} onChange={(e) => handleWearChange(e.target.value)}
+            onFocus={handleWearFocus} onBlur={handleWearBlur}
             status={wearError ? 'error' : undefined}
             style={{ fontSize: 12 }} />
           {wearError && (

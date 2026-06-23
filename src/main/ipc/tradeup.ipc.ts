@@ -4,7 +4,56 @@ import { executeTradeUp } from '../services/tradeup.service';
 import { simulateTradeUp } from '../services/tradeup-simulator';
 import { TradeUpRepo } from '../db/repositories/tradeup.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
+import { PriceRepo } from '../db/repositories/price.repo';
+import { csqaService } from '../services/csqa.service';
 import type { SteamBotService } from '../services/steam-bot.service';
+
+/** 计算收益数据：总成本、EV、ROI、保本率 */
+function calcProfit(inputs: { marketHashName?: string; price?: number }[], outcomes: { marketHashName?: string; probability: number }[]) {
+  // 从 PriceRepo 获取输入物品价格
+  let totalCost = 0;
+  for (const inp of inputs) {
+    if (inp.price != null) {
+      totalCost += inp.price;
+    } else if (inp.marketHashName) {
+      const cached = PriceRepo.getCache({ itemHashNames: [inp.marketHashName] });
+      const p = cached?.[0]?.current_price;
+      if (p != null) totalCost += p;
+    }
+  }
+
+  // 计算 EV（从 PriceRepo 获取产出物价格）
+  let ev = 0;
+  for (const out of outcomes) {
+    if (!out.marketHashName || !out.probability) continue;
+    const cached = PriceRepo.getCache({ itemHashNames: [out.marketHashName] });
+    const price = cached?.[0]?.current_price;
+    if (price != null) {
+      ev += price * out.probability;
+    }
+  }
+
+  if (totalCost <= 0) return null;
+
+  // 保本率：产出物中 price >= totalCost 的概率之和
+  let breakEvenProb = 0;
+  for (const out of outcomes) {
+    if (!out.marketHashName || !out.probability) continue;
+    const cached = PriceRepo.getCache({ itemHashNames: [out.marketHashName] });
+    const price = cached?.[0]?.current_price;
+    if (price != null && price >= totalCost) {
+      breakEvenProb += out.probability;
+    }
+  }
+
+  return {
+    totalCost: Math.round(totalCost * 100) / 100,
+    expectedValue: Math.round(ev * 100) / 100,
+    profit: Math.round((ev - totalCost) * 100) / 100,
+    roi: totalCost > 0 ? Math.round((ev - totalCost) / totalCost * 10000) / 100 : 0,
+    breakEvenRate: Math.round(breakEvenProb * 10000) / 100,
+  };
+}
 
 /**
  * Register trade-up IPC handlers.
@@ -55,6 +104,35 @@ export function registerTradeUpIpc(botGetter: () => SteamBotService | null): voi
       }));
 
       const result = simulateTradeUp(inputs);
+
+      // 自动补价：收集缺失价格，按需拉取
+      if (result.success) {
+        const needFetch = new Set<string>();
+        // 输入物品
+        for (const inp of inputs) {
+          const mhn = (inp as any).marketHashName || '';
+          if (!mhn) continue;
+          const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+          if (!cached?.[0]?.current_price) needFetch.add(mhn);
+        }
+        // 产出物
+        for (const out of result.outcomes) {
+          const mhn = (out as any).marketHashName || '';
+          if (!mhn) continue;
+          const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+          if (!cached?.[0]?.current_price) needFetch.add(mhn);
+        }
+        // 拉取缺失价格
+        if (needFetch.size > 0) {
+          await csqaService.fetch([...needFetch]);
+        }
+
+        const profit = calcProfit(inputs as any, result.outcomes.map(o => ({
+          marketHashName: (o as any).marketHashName || '',
+          probability: o.probability,
+        })));
+        (result as any).profit = profit;
+      }
 
       return result;
     } catch (err: any) {

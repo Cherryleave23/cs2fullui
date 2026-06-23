@@ -49,8 +49,10 @@ export interface ElectronAPI {
     fetch(marketHashNames: string[]): Promise<unknown[]>;
     getCache(filter?: Record<string, unknown>): Promise<unknown[]>;
     getHistory(marketHashName: string, days?: number): Promise<unknown[]>;
-    refreshAll(): Promise<void>;
-    getSummary(): Promise<unknown>;
+    refreshAll: () => Promise<void>;
+    getSummary: () => Promise<unknown>;
+    getCsqaToken: () => Promise<{ token: string }>;
+    setCsqaToken: (token: string) => Promise<{ success: boolean }>;
   };
   data: {
     downloadCSGOAPI(lang?: 'en' | 'zh-CN'): Promise<{ progress: number; done: boolean }>;

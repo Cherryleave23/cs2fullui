@@ -49,14 +49,18 @@ export const TradeUpRepo = {
     targetRarity: string;
     avgWearNorm?: number | null;
     status?: string;
+    totalCost?: number | null;
+    totalProfit?: number | null;
+    roi?: number | null;
   }): number {
     dbRun(
-      `INSERT INTO tradeup_history (account_id, recipe_id, recipe_index, input_rarity, target_rarity, avg_wear_norm, status, started_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      `INSERT INTO tradeup_history (account_id, recipe_id, recipe_index, input_rarity, target_rarity, avg_wear_norm, total_cost, total_profit, roi, status, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         params.accountId, params.recipeId ?? null, params.recipeIndex,
         params.inputRarity, params.targetRarity,
         params.avgWearNorm ?? null,
+        params.totalCost ?? null, params.totalProfit ?? null, params.roi ?? null,
         params.status ?? 'pending',
       ]
     );

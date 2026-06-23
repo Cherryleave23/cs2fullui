@@ -67,6 +67,11 @@ export const useTradeUpStore = create<TradeUpState>((set, get) => ({
 
   setSlot: (index, item) => {
     const slots = [...get().slots];
+    const old = slots[index];
+    // 修改磨损后清除 assetId（变为虚拟配方）
+    if (item && old && old.assetId && old.wearFloat !== item.wearFloat) {
+      item = { ...item, assetId: '' };
+    }
     slots[index] = item;
     set({ slots, error: null });
   },

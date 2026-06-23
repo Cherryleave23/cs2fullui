@@ -155,6 +155,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
 const MIGRATION_002 = `
 ALTER TABLE recipes ADD COLUMN parent_id INTEGER;
 ALTER TABLE recipes ADD COLUMN avg_target_wear REAL;
+ALTER TABLE recipes ADD COLUMN profit_json TEXT;
+ALTER TABLE tradeup_history ADD COLUMN total_cost REAL;
+ALTER TABLE tradeup_history ADD COLUMN total_profit REAL;
+ALTER TABLE tradeup_history ADD COLUMN roi REAL;
 `;
 
 function execSQL(sql: string): void {
@@ -222,4 +226,15 @@ export function runMigrations(): void {
   }
 
   console.log('[DB] Migrations ready');
+  // Always try 003 columns (silently skips existing)
+  execSQL(MIGRATION_003);
+  saveDatabase();
 }
+
+// ── Migration 003: profit & price fields ──
+const MIGRATION_003 = `
+ALTER TABLE recipes ADD COLUMN profit_json TEXT;
+ALTER TABLE tradeup_history ADD COLUMN total_cost REAL;
+ALTER TABLE tradeup_history ADD COLUMN total_profit REAL;
+ALTER TABLE tradeup_history ADD COLUMN roi REAL;
+`;

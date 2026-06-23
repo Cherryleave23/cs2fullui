@@ -77,12 +77,20 @@ const electronAPI = {
   price: {
     fetch: (marketHashNames: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.PRICE_FETCH, marketHashNames),
-    getCache: (filter?: Record<string, unknown>) =>
+    getCache: (filter?: any) =>
       ipcRenderer.invoke(IPC_CHANNELS.PRICE_GET_CACHE, filter),
     getHistory: (marketHashName: string, days?: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.PRICE_GET_HISTORY, marketHashName, days),
     refreshAll: () => ipcRenderer.invoke(IPC_CHANNELS.PRICE_REFRESH_ALL),
+    fetchInventory: () => ipcRenderer.invoke(IPC_CHANNELS.PRICE_FETCH_INVENTORY),
     getSummary: () => ipcRenderer.invoke(IPC_CHANNELS.PRICE_GET_SUMMARY),
+    getCsqaToken: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_CSQA_TOKEN),
+    setCsqaToken: (token: string) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_CSQA_TOKEN, token),
+    onPriceUpdated: (callback: (data: unknown[]) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown[]) => callback(data);
+      ipcRenderer.on(IPC_CHANNELS.PUSH_PRICE_UPDATED, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.PUSH_PRICE_UPDATED, handler);
+    },
   },
 
   // ── Data ──

@@ -21,7 +21,7 @@ const RARITY_ORDER = ['消费级', '工业级', '军规级', '受限级', '保�
  * This is populated from CSGO-API colelctions.json.
  * Without downloaded data, a minimal built-in reference is used.
  */
-const COLLECTION_OUTPUTS: Record<string, Record<string, string[]>> = {
+const COLLECTION_OUTPUTS: Record<string, Record<string, { name: string; marketHashName: string }[]>> = {
   // Built-in minimal reference — extended when CSGO-API data is loaded
 };
 
@@ -47,6 +47,8 @@ export interface SimOutcome {
   name: string;
   /** Chinese name */
   nameZh?: string;
+  /** market_hash_name for price lookup */
+  marketHashName?: string;
   /** Collection this outcome comes from */
   collection: string;
   /** Probability (0–1) */
@@ -162,9 +164,10 @@ export function simulateTradeUp(items: SimInputItem[]): SimulationResult {
     if (outputs.length > 0) {
       // Known outputs — distribute probability evenly
       const perOutputProb = collectionProb / outputs.length;
-      for (const name of outputs) {
+      for (const output of outputs) {
         outcomes.push({
-          name,
+          name: output.name,
+          marketHashName: output.marketHashName,
           collection,
           probability: perOutputProb,
           estWearFloat: lerpOutputFloat(collection, avgWearNorm),
@@ -215,7 +218,10 @@ export function loadCollectionData(collectionsData: any[]): void {
       if (!COLLECTION_OUTPUTS[collName][rarityName]) {
         COLLECTION_OUTPUTS[collName][rarityName] = [];
       }
-      COLLECTION_OUTPUTS[collName][rarityName].push(skin.name);
+      COLLECTION_OUTPUTS[collName][rarityName].push({
+        name: skin.name,
+        marketHashName: skin.market_hash_name || '',
+      });
     }
   }
   console.log(`[Simulator] Collection data loaded: ${Object.keys(COLLECTION_OUTPUTS).length} collections`);

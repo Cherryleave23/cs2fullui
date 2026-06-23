@@ -51,6 +51,7 @@ export function registerRecipeIpc(): void {
         avgTargetWear: recipe.avgTargetWear,
         parentId: recipe.parentId || null,
         outcomeSummary: recipe.outcomeSummary ? JSON.stringify(recipe.outcomeSummary) : null,
+        profitJson: recipe.profit ? JSON.stringify(recipe.profit) : null,
         items: (recipe.items || []).map((i: any, idx: number) => ({
           paint_index: i.paintIndex || i.paint_index || 0,
           weapon_id: i.weaponId || i.weapon_id || 0,
