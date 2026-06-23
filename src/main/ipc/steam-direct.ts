@@ -22,50 +22,6 @@ export function getCsgo(): any {
 }
 
 export function registerSteamDirect(): void {
-  // ── Ensure singleton exists and bind inventory sync ──
-  const bot = getSteamBot();
-
-  // Forward bot events to renderer
-  bot.on('loggedOn', (steamId: string) => {
-    sendStatus('logged_in');
-    send({ type: 'logged-in', steamId, accountName: bot.accountName });
-  });
-  bot.on('steamGuardNeeded', (data: any) => {
-    send({ type: 'guard', ...data });
-  });
-  bot.on('fatalError', (err: any) => {
-    sendStatus('error');
-    send({ type: 'error', message: err.message || String(err) });
-  });
-  bot.on('refreshToken', () => {
-    send({ type: 'token-saved' });
-  });
-  bot.on('inventoryReady', (rawInventory: any[]) => {
-    sendGcStatus('HAVE_SESSION');
-    // Sync inventory to DB
-    const loose = rawInventory.filter((i: any) => !i.casket_id);
-    if (csgoResolver.load() && loose.length > 0) {
-      const resolved = csgoResolver.resolveAll(loose);
-      InventoryRepo.clearAll();
-      for (const item of resolved) InventoryRepo.upsertItem(item);
-      console.log(`[SteamDirect] Synced ${resolved.length} items`);
-    }
-    send({ type: 'inventory-synced', count: loose.length });
-  });
-  bot.on('disconnected', (eresult: number, msg: string) => {
-    sendStatus('idle');
-    sendGcStatus('GC_GOING_DOWN');
-    send({ type: 'disconnected', eresult, msg });
-  });
-
-  // Bind GC inventory sync (keeps DB in sync with live changes)
-  bot.on('inventoryReady', (rawInventory: any[]) => {
-    if (unsubInventory) unsubInventory();
-    unsubInventory = bindInventorySync(bot, 0, {
-      onSyncComplete: (count) => send({ type: 'inventory-synced', count }),
-    });
-  });
-
   // ── AUTO-LOGIN all saved accounts on startup ──
   ipcMain.handle('steam:auto-login', async () => {
     try {
@@ -145,7 +101,8 @@ export function registerSteamDirect(): void {
 
   // ── TRADE-UP EXECUTION ──
   ipcMain.handle('steam:tradeup-execute', async (_e, params: { assetIds: string[]; recipe: number }) => {
-    if (!bot.isGCReady) return { success: false, error: 'GC 未连接' };
+    const bot = accountManager.getActive();
+    if (!bot?.isGCReady) return { success: false, error: 'GC 未连接' };
     const assetIds = params.assetIds;
     if (assetIds.length !== 10) return { success: false, error: '需要10件物品' };
 
