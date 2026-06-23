@@ -36,20 +36,10 @@ const menuItems: MenuProps['items'] = [
   { key: '/settings', icon: <SettingOutlined />, label: '设置' },
 ];
 
-const statusTagMap: Record<string, { color: string; text: string }> = {
-  idle: { color: 'default', text: '离线' },
-  connecting: { color: 'processing', text: '连接中...' },
-  logged_in: { color: 'orange', text: '已登录' },
-  gc_connecting: { color: 'orange', text: 'CS2 连接中' },
-  gc_ready: { color: 'green', text: 'CS2 已就绪' },
-  error: { color: 'red', text: '错误' },
-};
-
 const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { status, steamId, setStatus } = useAuthStore();
-  const statusInfo = statusTagMap[status] || statusTagMap.idle;
 
   // Listen for push events from main process
   useEffect(() => {
@@ -104,10 +94,14 @@ const App: React.FC = () => {
         />
         <div style={{ position: 'absolute', bottom: 0, width: '100%', padding: 16 }}>
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <Tag color={statusInfo.color} style={{ width: '100%', textAlign: 'center' }}>
-              {status === 'gc_ready' ? '🟢 ' : status === 'logged_in' ? '🟡 ' : '⚪ '}
-              {statusInfo.text}
-            </Tag>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Tag color={status === 'idle' ? 'default' : 'green'} style={{ flex: 1, textAlign: 'center', fontSize: 11 }}>
+                Steam: {status === 'idle' ? '离线' : status === 'connecting' ? '连接中' : '已连接'}
+              </Tag>
+              <Tag color={status === 'gc_ready' ? 'green' : 'default'} style={{ flex: 1, textAlign: 'center', fontSize: 11 }}>
+                GC: {status === 'gc_ready' ? '已连接' : '未连接'}
+              </Tag>
+            </div>
             {steamId && (
               <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, display: 'block', textAlign: 'center' }}>
                 {steamId.substring(0, 10)}...
