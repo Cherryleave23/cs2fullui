@@ -102,13 +102,16 @@ export function generateSubRecipes(parentId: number): GenerationResult {
   const parentWearCats = new Set(parentSim.outcomes.map(o => o.estWearCategory));
   console.log('[AutoSub] Parent wear categories:', [...parentWearCats], 'norm:', parentNorm?.toFixed(4));
 
-  // Build parent collection counts for proportional fill
+  // Build parent collection counts for proportional fill.
+  // IMPORTANT: parentSim.collectionsUsed is UNIQUE names, not raw item counts.
+  // Use simInputs (10 entries, one per item) to get the actual per-collection count.
   const parentCollCounts = new Map<string, number>();
-  for (const coll of parentSim.collectionsUsed) {
+  for (const si of simInputs) {
+    const coll = si.collection || 'unknown';
     parentCollCounts.set(coll, (parentCollCounts.get(coll) || 0) + 1);
   }
   const requiredStr = [...parentCollCounts].map(([c, n]) => `${c}:${n}`).join(', ');
-  console.log('[AutoSub] Required distribution:', requiredStr);
+  console.log('[AutoSub] Required distribution (10 items):', requiredStr);
 
   // ── 2. Find inventory candidates ──
   const allInv = InventoryRepo.getAllItems();
