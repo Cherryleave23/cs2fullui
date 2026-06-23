@@ -25,6 +25,7 @@ const electronAPI = {
     setProxyConfig: (params: { steamId?: string; proxyUrl: string }) =>
       ipcRenderer.invoke(IPC_CHANNELS.AUTH_SET_PROXY_CONFIG, params),
     getAccounts: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GET_ACCOUNTS),
+    loginAll: () => ipcRenderer.invoke('auth:login-all'),
     switchAccount: (steamId: string) =>
       ipcRenderer.invoke('auth:switch', steamId),
     updateNickname: (params: { steamId: string; nickname: string }) =>

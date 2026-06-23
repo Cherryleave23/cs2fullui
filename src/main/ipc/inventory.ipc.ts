@@ -2,11 +2,10 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
-import { getSteamBot } from '../services/steam-bot.service';
-import type { SteamBotService } from '../services/steam-bot.service';
+import { accountManager } from '../services/account-manager';
 import type { ResolvedItem } from '../../shared/types/item';
 
-export function registerInventoryIpc(_botGetter?: () => SteamBotService | null): void {
+export function registerInventoryIpc(): void {
   // ── Get items ──
   ipcMain.handle(IPC_CHANNELS.INVENTORY_GET_ITEMS, async (_event, filter?: {
     rarity?: number;
@@ -28,9 +27,8 @@ export function registerInventoryIpc(_botGetter?: () => SteamBotService | null):
   // ── Refresh inventory — uses steam-direct client or AccountManager bot ──
   ipcMain.handle(IPC_CHANNELS.INVENTORY_REFRESH, async () => {
     try {
-      // Use singleton bot service
-      const bot = getSteamBot();
-      const csgo: any = bot.isGCReady ? bot.csgo : null;
+      const bot = accountManager.getActive();
+      const csgo: any = bot?.isGCReady ? bot.csgo : null;
 
       if (!csgo) {
         // No GC connection — return whatever is already in DB
@@ -80,8 +78,8 @@ export function registerInventoryIpc(_botGetter?: () => SteamBotService | null):
   // ── Inspect single item via GC ──
   ipcMain.handle(IPC_CHANNELS.INVENTORY_INSPECT_ITEM, async (_event, assetId: string, mode?: string) => {
     try {
-      const bot = getSteamBot();
-      if (!bot.isGCReady) return { error: 'GC 未连接' };
+      const bot = accountManager.getActive();
+      if (!bot?.isGCReady) return { error: 'GC 未连接' };
 
       // Find item in inventory to get owner info
       const csgo = bot.csgo;

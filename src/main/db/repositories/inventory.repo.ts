@@ -1,4 +1,5 @@
 import { dbAll, dbGet, dbRun, saveDatabase, getDatabase } from '../connection';
+import { AccountRepo } from './account.repo';
 import type { ResolvedItem } from '../../../shared/types/item';
 
 // DB returns snake_case; app uses camelCase
@@ -23,9 +24,16 @@ function toCamel(row: Record<string, any>): ResolvedItem {
   };
 }
 
+/** Get current active account_id (from active steam_id, default 1) */
+function activeAccountId(): number {
+  const a = AccountRepo.getActive();
+  return a?.id ?? 1;
+}
+
 export const InventoryRepo = {
-  /** Upsert a single resolved item (matched by asset_id) */
-  upsertItem(item: ResolvedItem): void {
+  /** Upsert a single resolved item (matched by asset_id). Uses active account by default. */
+  upsertItem(item: ResolvedItem, accountId?: number): void {
+    const aid = accountId ?? activeAccountId();
     dbRun(
       `INSERT INTO inventory_items (
         account_id, asset_id, def_index, paint_index, paint_seed, paint_wear,
@@ -69,7 +77,7 @@ export const InventoryRepo = {
         is_souvenir = excluded.is_souvenir,
         extra_json = excluded.extra_json`,
       [
-        1, item.assetId, item.defIndex, item.paintIndex, item.paintSeed, item.paintWear,
+        aid, item.assetId, item.defIndex, item.paintIndex, item.paintSeed, item.paintWear,
         item.rarity, item.quality, item.origin,
         item.customName || null,
         item.killEaterValue, item.killEaterScoreType,
@@ -87,12 +95,12 @@ export const InventoryRepo = {
   },
 
   /** Bulk upsert items (wraps in transaction) */
-  upsertItems(items: ResolvedItem[]): void {
+  upsertItems(items: ResolvedItem[], accountId?: number): void {
     const db = getDatabase();
     db.run('BEGIN TRANSACTION');
     try {
       for (const item of items) {
-        this.upsertItem(item);
+        this.upsertItem(item, accountId);
       }
       db.run('COMMIT');
       saveDatabase();
@@ -102,7 +110,7 @@ export const InventoryRepo = {
     }
   },
 
-  /** Get all items, optionally filtered */
+  /** Get all items for the active account, optionally filtered */
   getAllItems(filter?: {
     rarity?: number;
     resolvedType?: string;
@@ -110,9 +118,10 @@ export const InventoryRepo = {
     collectionName?: string;
     isStatTrak?: boolean;
     isSouvenir?: boolean;
-  }): ResolvedItem[] {
-    let sql = 'SELECT * FROM inventory_items WHERE 1=1';
-    const params: unknown[] = [];
+  }, accountId?: number): ResolvedItem[] {
+    const aid = accountId ?? activeAccountId();
+    let sql = 'SELECT * FROM inventory_items WHERE account_id = ?';
+    const params: unknown[] = [aid];
 
     if (filter?.rarity !== undefined) {
       sql += ' AND rarity = ?';
@@ -153,27 +162,33 @@ export const InventoryRepo = {
     saveDatabase();
   },
 
-  /** Clear all items for an account */
-  clearAll(): void {
+  /** Clear all items for the active account */
+  clearAll(accountId?: number): void {
+    const aid = accountId ?? activeAccountId();
+    dbRun('DELETE FROM inventory_items WHERE account_id = ?', [aid]);
+    saveDatabase();
+  },
+
+  /** Clear ALL items across all accounts (used at login for full resync) */
+  clearAllAccounts(): void {
     dbRun('DELETE FROM inventory_items');
     saveDatabase();
   },
 
-  /** Get inventory statistics */
-  getStats(): {
+  /** Get inventory statistics for active account */
+  getStats(accountId?: number): {
     totalItems: number;
     byRarity: Record<string, number>;
     byType: Record<string, number>;
   } {
-    const total = (dbGet<{ cnt: number }>('SELECT COUNT(*) as cnt FROM inventory_items'))?.cnt ?? 0;
-
+    const aid = accountId ?? activeAccountId();
+    const total = (dbGet<{ cnt: number }>('SELECT COUNT(*) as cnt FROM inventory_items WHERE account_id = ?', [aid]))?.cnt ?? 0;
     const byRarity = dbAll<{ rarity_name: string; cnt: number }>(
-      'SELECT rarity_name, COUNT(*) as cnt FROM inventory_items GROUP BY rarity_name ORDER BY cnt DESC'
+      'SELECT rarity_name, COUNT(*) as cnt FROM inventory_items WHERE account_id = ? GROUP BY rarity_name ORDER BY cnt DESC', [aid]
     );
     const byType = dbAll<{ resolved_type: string; cnt: number }>(
-      'SELECT resolved_type, COUNT(*) as cnt FROM inventory_items GROUP BY resolved_type ORDER BY cnt DESC'
+      'SELECT resolved_type, COUNT(*) as cnt FROM inventory_items WHERE account_id = ? GROUP BY resolved_type ORDER BY cnt DESC', [aid]
     );
-
     return {
       totalItems: total,
       byRarity: Object.fromEntries(byRarity.map(r => [r.rarity_name, r.cnt])),
@@ -182,16 +197,18 @@ export const InventoryRepo = {
   },
 
   /** Get distinct weapon types in inventory */
-  getWeaponTypes(): string[] {
+  getWeaponTypes(accountId?: number): string[] {
+    const aid = accountId ?? activeAccountId();
     return dbAll<{ weapon_type: string }>(
-      'SELECT DISTINCT weapon_type FROM inventory_items WHERE weapon_type IS NOT NULL ORDER BY weapon_type'
+      'SELECT DISTINCT weapon_type FROM inventory_items WHERE weapon_type IS NOT NULL AND account_id = ? ORDER BY weapon_type', [aid]
     ).map(r => r.weapon_type);
   },
 
   /** Get distinct collections in inventory */
-  getCollections(): string[] {
+  getCollections(accountId?: number): string[] {
+    const aid = accountId ?? activeAccountId();
     return dbAll<{ collection_name: string }>(
-      'SELECT DISTINCT collection_name FROM inventory_items WHERE collection_name IS NOT NULL ORDER BY collection_name'
+      'SELECT DISTINCT collection_name FROM inventory_items WHERE collection_name IS NOT NULL AND account_id = ? ORDER BY collection_name', [aid]
     ).map(r => r.collection_name);
   },
 };

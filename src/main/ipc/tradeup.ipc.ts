@@ -8,7 +8,7 @@ import { PriceRepo } from '../db/repositories/price.repo';
 import { csqaService } from '../services/csqa.service';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
 import { getWearCategory } from '../db/seed';
-import { getSteamBot } from '../services/steam-bot.service';
+import { accountManager } from '../services/account-manager';
 
 /** 计算收益数据：总成本、EV、ROI、保本率 */
 function calcProfit(inputs: { marketHashName?: string; price?: number }[], outcomes: { marketHashName?: string; probability: number }[]) {
@@ -182,8 +182,8 @@ export function registerTradeUpIpc(): void {
   // ── Execute a real trade-up via GC ──
   ipcMain.handle(IPC_CHANNELS.TRADEUP_EXECUTE, async (_event, assetIds: string[]) => {
     try {
-      const bot = getSteamBot();
-      if (!bot.isGCReady) return { success: false, error: 'Steam 未连接，请先登录' };
+      const bot = accountManager.getActive();
+      if (!bot?.isGCReady) return { success: false, error: 'Steam 未连接，请先登录并激活账号' };
 
       const result = await executeTradeUp(bot, { assetIds });
       return result;

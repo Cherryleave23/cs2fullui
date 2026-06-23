@@ -2,7 +2,7 @@
  * steam-direct — thin IPC layer. All Steam logic lives in SteamBotService.
  */
 import { ipcMain, BrowserWindow } from 'electron';
-import { getSteamBot } from '../services/steam-bot.service';
+import { accountManager } from '../services/account-manager';
 import { AccountRepo } from '../db/repositories/account.repo';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
 import { bindInventorySync } from '../services/inventory-sync.service';
@@ -15,10 +15,10 @@ function send(data: unknown) { w()?.webContents.send('push:steam-log', data); }
 function sendStatus(state: string) { w()?.webContents.send('push:steam-status', { state }); }
 function sendGcStatus(status: string) { w()?.webContents.send('push:gc-status', status); }
 
-/** Get GC accessor for inventory page */
+/** Get GC accessor for inventory page (active account) */
 export function getCsgo(): any {
-  const bot = getSteamBot();
-  return bot.isGCReady ? bot.csgo : null;
+  const bot = accountManager.getActive();
+  return bot?.isGCReady ? bot.csgo : null;
 }
 
 export function registerSteamDirect(): void {
@@ -66,20 +66,48 @@ export function registerSteamDirect(): void {
     });
   });
 
-  // ── AUTO-LOGIN on startup ──
+  // ── AUTO-LOGIN all saved accounts on startup ──
   ipcMain.handle('steam:auto-login', async () => {
     try {
-      const result = await bot.autoLogin();
-      return result;
+      const loggedIn = await accountManager.loginAllSaved();
+      const active = accountManager.getActive();
+      const bot = active;
+      // Wire status events for the active bot
+      if (bot) {
+        bot.on('loggedOn', (steamId: string) => {
+          sendStatus('logged_in');
+          send({ type: 'logged-in', steamId, accountName: bot.accountName });
+        });
+        bot.on('steamGuardNeeded', (data: any) => send({ type: 'guard', ...data }));
+        bot.on('fatalError', (err: any) => { sendStatus('error'); send({ type: 'error', message: err.message || String(err) }); });
+        bot.on('refreshToken', () => send({ type: 'token-saved' }));
+        bot.on('inventoryReady', (raw: any[]) => {
+          sendGcStatus('HAVE_SESSION');
+          const loose = raw.filter((i: any) => !i.casket_id);
+          if (csgoResolver.load() && loose.length > 0) {
+            const resolved = csgoResolver.resolveAll(loose);
+            InventoryRepo.clearAll();
+            for (const item of resolved) InventoryRepo.upsertItem(item);
+          }
+          send({ type: 'inventory-synced', count: loose.length });
+        });
+        bot.on('disconnected', (er: number, msg: string) => { sendStatus('idle'); sendGcStatus('GC_GOING_DOWN'); send({ type: 'disconnected', eresult: er, msg }); });
+        bot.on('inventoryReady', () => {
+          if (unsubInventory) unsubInventory();
+          unsubInventory = bindInventorySync(bot, 0, { onSyncComplete: (count: number) => send({ type: 'inventory-synced', count }) });
+        });
+      }
+      return { success: true, count: loggedIn.length, activeSteamId: active?.steamId };
     } catch (err: any) { return { success: false, error: err.message }; }
   });
 
-  // ── STATUS ──
+  // ── STATUS (active account) ──
   ipcMain.handle('steam:status', async () => {
+    const bot = accountManager.getActive();
     return {
-      steamId: bot.steamId,
-      gcReady: bot.isGCReady,
-      itemCount: bot.csgo?.inventory?.length || 0,
+      steamId: bot?.steamId || null,
+      gcReady: bot?.isGCReady || false,
+      itemCount: bot?.csgo?.inventory?.length || 0,
     };
   });
 
@@ -92,20 +120,26 @@ export function registerSteamDirect(): void {
     }));
   });
 
-  // ── LOGIN ──
+  // ── LOGIN (single account) ──
   ipcMain.handle('steam:login', async (_e, params: {
     accountName: string; password: string; proxyUrl?: string; nickname?: string;
   }) => {
     try {
+      const existing = AccountRepo.getAll().find(a => a.account_name === params.accountName);
+      const bot = accountManager.getOrCreate(existing?.steam_id || params.accountName);
       const result = await bot.login(params);
+      if (result.success && result.steamId) {
+        await accountManager.connectGC(result.steamId);
+      }
       return result;
     } catch (err: any) { return { success: false, error: err.message }; }
   });
 
   // ── GUARD ──
   ipcMain.handle('steam:guard', async (_e, params: { code: string }) => {
-    if (!bot.guardPending) return { success: false, error: 'No pending guard' };
-    bot.submitSteamGuard(params.code);
+    const active = accountManager.getActive();
+    if (!active?.guardPending) return { success: false, error: 'No pending guard' };
+    active.submitSteamGuard(params.code);
     return { success: true };
   });
 

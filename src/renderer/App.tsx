@@ -39,12 +39,19 @@ const menuItems: MenuProps['items'] = [
 const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { status, steamId, setStatus } = useAuthStore();
+  const { status, steamId, setStatus, accounts, setAccounts, setAccountName } = useAuthStore();
 
-  // Listen for push events from main process
+  // Load accounts + listen for status
+  useEffect(() => {
+    const load = async () => {
+      const list = await window.electronAPI?.auth.getAccounts?.() || [];
+      setAccounts(list as any);
+    };
+    load();
+  }, []);
+
   useEffect(() => {
     const unsubs: (() => void)[] = [];
-
     const unsub1 = window.electronAPI?.onSteamStatus?.((s: any) => {
       if (s.state === 'logged_in') setStatus('logged_in');
       else if (s.state === 'gc_ready') setStatus('gc_ready');
@@ -52,15 +59,20 @@ const App: React.FC = () => {
       else if (s.state === 'error') setStatus('error');
     });
     if (unsub1) unsubs.push(unsub1);
-
     const unsub2 = window.electronAPI?.onGcStatus?.((s: any) => {
       if (s === 0 || s === 'HAVE_SESSION') setStatus('gc_ready');
       else if (s === 1 || s === 'GC_GOING_DOWN') setStatus('logged_in');
     });
     if (unsub2) unsubs.push(unsub2);
-
     return () => unsubs.forEach(fn => fn?.());
   }, []);
+
+  const handleSwitchAccount = async (sid: string) => {
+    await window.electronAPI?.auth.switchAccount?.(sid);
+    setAccountName(sid);
+    const list = await window.electronAPI?.auth.getAccounts?.() || [];
+    setAccounts(list as any);
+  };
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -92,7 +104,32 @@ const App: React.FC = () => {
           onClick={({ key }) => navigate(key)}
           style={{ marginTop: 8 }}
         />
-        <div style={{ position: 'absolute', bottom: 0, width: '100%', padding: 16 }}>
+        <div style={{ position: 'absolute', bottom: 0, width: '100%', padding: '12px 16px' }}>
+          {/* Account list switcher */}
+          {accounts.length > 1 && (
+            <div style={{ marginBottom: 8, maxHeight: 80, overflowY: 'auto' }}>
+              {accounts.map((a: any) => (
+                <div key={a.steamId}
+                  onClick={() => handleSwitchAccount(a.steamId)}
+                  style={{
+                    padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+                    background: a.isActive ? 'rgba(24,144,255,0.15)' : 'transparent',
+                    marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: a.gcReady ? '#52c41a' : a.isOnline ? '#faad14' : '#888',
+                  }} />
+                  <Text style={{
+                    color: a.isActive ? '#1890ff' : 'rgba(255,255,255,0.65)',
+                    fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {a.nickname || a.accountName}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          )}
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
             <div style={{ display: 'flex', gap: 6 }}>
               <Tag color={status === 'idle' ? 'default' : 'green'} style={{ flex: 1, textAlign: 'center', fontSize: 11 }}>

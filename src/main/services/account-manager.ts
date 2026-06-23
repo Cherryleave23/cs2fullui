@@ -1,77 +1,193 @@
 /**
- * Multi-account manager.
- * Manages multiple SteamBotService instances, one per Steam account.
- * Only ONE account can be actively connected to CS2 GC at a time.
+ * Multi-account manager — manages multiple SteamBotService instances.
+ * All accounts can be logged in simultaneously (CM connection).
+ * Only ONE account connects to CS2 GC at a time (per Steam's limit).
  */
-import { SteamBotService } from './steam-bot.service';
+import { SteamBotService, applyProxy } from './steam-bot.service';
 import { AccountRepo, type AccountRow } from '../db/repositories/account.repo';
+import { InventoryRepo } from '../db/repositories/inventory.repo';
+import { bindInventorySync } from './inventory-sync.service';
+
+interface AccountState {
+  bot: SteamBotService;
+  steamId: string;
+  accountName: string;
+  loggedIn: boolean;
+  gcReady: boolean;
+}
 
 class AccountManager {
-  private bots = new Map<string, SteamBotService>();
+  private accounts = new Map<string, AccountState>();
   private activeSteamId: string | null = null;
+  private inventoryUnsubs = new Map<string, () => void>();
 
-  /** Get or create a bot for a Steam account */
+  // ═══════════════════════════════════════════
+  //  Account creation & retrieval
+  // ═══════════════════════════════════════════
+
   getOrCreate(steamId: string): SteamBotService {
-    let bot = this.bots.get(steamId);
-    if (!bot) {
-      bot = new SteamBotService();
-      this.bots.set(steamId, bot);
+    let state = this.accounts.get(steamId);
+    if (!state) {
+      const bot = new SteamBotService();
+      state = { bot, steamId, accountName: '', loggedIn: false, gcReady: false };
+      this.accounts.set(steamId, state);
+      this._bindBotEvents(state);
     }
-    return bot;
+    return state.bot;
   }
 
-  /** Get an existing bot (doesn't create) */
   get(steamId: string): SteamBotService | undefined {
-    return this.bots.get(steamId);
+    return this.accounts.get(steamId)?.bot;
   }
 
-  /** Get the currently active bot */
+  getState(steamId: string): AccountState | undefined {
+    return this.accounts.get(steamId);
+  }
+
   getActive(): SteamBotService | undefined {
     if (!this.activeSteamId) {
-      // Try to restore from DB
       const active = AccountRepo.getActive();
       if (active) this.activeSteamId = active.steam_id;
     }
-    return this.activeSteamId ? this.bots.get(this.activeSteamId) : undefined;
+    return this.activeSteamId ? this.accounts.get(this.activeSteamId)?.bot : undefined;
   }
 
-  /** Set which account is active and switch GC connection */
-  async switchTo(steamId: string): Promise<void> {
-    const oldBot = this.activeSteamId ? this.bots.get(this.activeSteamId) : undefined;
-    const newBot = this.bots.get(steamId);
-    if (!newBot) throw new Error('Account not found');
+  getActiveSteamId(): string | null { return this.activeSteamId; }
 
-    // Disconnect old account from GC
-    if (oldBot && oldBot !== newBot) {
-      try { oldBot.client.gamesPlayed([]); } catch (_) { /* ignore */ }
+  listStates(): { steamId: string; accountName: string; loggedIn: boolean; gcReady: boolean; isActive: boolean }[] {
+    return [...this.accounts.entries()].map(([id, s]) => ({
+      steamId: id,
+      accountName: s.accountName,
+      loggedIn: s.loggedIn,
+      gcReady: s.gcReady,
+      isActive: id === this.activeSteamId,
+    }));
+  }
+
+  // ═══════════════════════════════════════════
+  //  Login all saved accounts (call on startup)
+  // ═══════════════════════════════════════════
+  async loginAllSaved(): Promise<string[]> {
+    const accounts = AccountRepo.getAll().filter(a => a.refresh_token);
+    const loggedIn: string[] = [];
+    for (const acc of accounts) {
+      try {
+        const bot = this.getOrCreate(acc.steam_id);
+        const state = this.accounts.get(acc.steam_id)!;
+        state.accountName = acc.account_name;
+        if (acc.proxy_url) applyProxy(bot.client, acc.proxy_url);
+        const result = await new Promise<boolean>((resolve) => {
+          const t = setTimeout(() => resolve(false), 30000);
+          bot.once('loggedOn', () => { clearTimeout(t); resolve(true); });
+          bot.client.logOn({ refreshToken: acc.refresh_token!, steamID: acc.steam_id });
+        });
+        if (result) {
+          loggedIn.push(acc.steam_id);
+          console.log(`[AccountManager] Auto-login OK: ${acc.account_name}`);
+        }
+      } catch (err: any) {
+        console.error(`[AccountManager] Auto-login failed for ${acc.account_name}: ${err.message}`);
+      }
+    }
+    // Connect GC for active account
+    const active = AccountRepo.getActive();
+    if (active?.steam_id && this.accounts.has(active.steam_id)) {
+      await this.connectGC(active.steam_id);
+    }
+    return loggedIn;
+  }
+
+  // ═══════════════════════════════════════════
+  //  GC connection management (only one at a time)
+  // ═══════════════════════════════════════════
+
+  /** Connect GC for an account (disconnects previous active) */
+  async connectGC(steamId: string): Promise<void> {
+    const newState = this.accounts.get(steamId);
+    if (!newState || !newState.loggedIn) throw new Error('Account not logged in');
+
+    // Disconnect old active
+    if (this.activeSteamId && this.activeSteamId !== steamId) {
+      const oldState = this.accounts.get(this.activeSteamId);
+      if (oldState) {
+        try { oldState.bot.client.gamesPlayed([]); } catch (_) {}
+        oldState.gcReady = false;
+      }
+      // Unbind inventory sync
+      const unsub = this.inventoryUnsubs.get(this.activeSteamId);
+      if (unsub) { unsub(); this.inventoryUnsubs.delete(this.activeSteamId); }
     }
 
-    // Connect new account to GC (if logged in)
-    if (newBot.steamId) {
-      newBot.client.gamesPlayed([730]);
-    }
-
+    // Connect new account to GC
+    newState.bot.client.gamesPlayed([730]);
     this.activeSteamId = steamId;
     AccountRepo.setActive(steamId);
+
+    // Bind inventory sync for the new active account
+    const activeAcc = AccountRepo.getBySteamId(steamId);
+    if (activeAcc) {
+      const unsub = bindInventorySync(newState.bot, activeAcc.id ?? 0, {
+        onSyncComplete: (count) => {
+          console.log(`[AccountManager] Inventory synced for ${steamId}: ${count} items`);
+        },
+      });
+      this.inventoryUnsubs.set(steamId, unsub);
+    }
   }
 
-  /** Remove an account completely */
+  /** Disconnect GC from active account (keep login) */
+  disconnectGC(): void {
+    if (!this.activeSteamId) return;
+    const state = this.accounts.get(this.activeSteamId);
+    if (state) {
+      try { state.bot.client.gamesPlayed([]); } catch (_) {}
+      state.gcReady = false;
+    }
+    const unsub = this.inventoryUnsubs.get(this.activeSteamId);
+    if (unsub) { unsub(); this.inventoryUnsubs.delete(this.activeSteamId); }
+  }
+
+  // ═══════════════════════════════════════════
+  //  Removal
+  // ═══════════════════════════════════════════
+
+  /** Remove an account completely (logout + delete from DB) */
   remove(steamId: string): void {
-    const bot = this.bots.get(steamId);
-    if (bot) {
-      bot.logout();
-      bot.removeAllListeners();
-      this.bots.delete(steamId);
+    const state = this.accounts.get(steamId);
+    if (state) {
+      state.bot.logout();
+      state.bot.removeAllListeners();
+      this.accounts.delete(steamId);
     }
     if (this.activeSteamId === steamId) {
       this.activeSteamId = null;
     }
-    AccountRepo.delete(steamId);
+    // Clean up inventory
+    const acc = AccountRepo.getBySteamId(steamId);
+    if (acc) {
+      InventoryRepo.clearAll(acc.id ?? 0);
+      AccountRepo.delete(steamId);
+    }
+    // Unbind inventory sync
+    const unsub = this.inventoryUnsubs.get(steamId);
+    if (unsub) { unsub(); this.inventoryUnsubs.delete(steamId); }
   }
 
-  /** List all saved accounts from DB */
-  listAccounts(): AccountRow[] {
-    return AccountRepo.getAll();
+  // ═══════════════════════════════════════════
+  //  Internal
+  // ═══════════════════════════════════════════
+
+  private _bindBotEvents(state: AccountState): void {
+    state.bot.on('loggedOn', (sid: string) => {
+      state.loggedIn = true;
+      console.log(`[AccountManager] ${state.accountName || sid} logged in`);
+    });
+    state.bot.on('disconnected', () => {
+      state.gcReady = false;
+    });
+    state.bot.on('inventoryReady', () => {
+      state.gcReady = true;
+    });
   }
 }
 
