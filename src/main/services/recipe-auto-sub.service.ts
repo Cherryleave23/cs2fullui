@@ -7,12 +7,6 @@ import type { ResolvedItem } from '../../shared/types/item';
 interface GenerationResult { success: boolean; subRecipes: SubRecipeCandidate[]; error?: string; }
 interface SubRecipeCandidate { items: ResolvedItem[]; avgWearNorm: number; normDiff: number; targetRarity: string; targetRarityZh: string; }
 
-/** Look up collection name for a paint_index|weapon_id pair */
-function getCollection(paintIndex: number, weaponId: number): string {
-  const skin = csgoResolver.resolveSkinByKey(paintIndex, weaponId);
-  return skin?.collection || '';
-}
-
 /** Calculate normalized wear: clamp((wear - min) / (max - min), 0, 1) */
 function getWearNorm(item: ResolvedItem): number {
   const range = (item.maxFloat || 1) - (item.minFloat || 0);
@@ -83,14 +77,18 @@ export function generateSubRecipes(parentId: number): GenerationResult {
   console.log(`[AutoSub] Items: ${parentItems.length}, rarity: ${parent.rarity}, target: ${parent.target_rarity}, type: ${parent.type}`);
 
   // ── 1. Simulate parent to get baseline ──
-  const simInputs: SimInputItem[] = parentItems.map(i => ({
-    name: '', rarity: parent.rarity, paintIndex: i.paint_index,
-    defIndex: i.weapon_id, wearFloat: i.wear_float,
-    minFloat: 0, maxFloat: 1,
-    collection: getCollection(i.paint_index, i.weapon_id),
-    isStatTrak: false, isSouvenir: false,
-  }));
-  console.log('[AutoSub] Parent collections:', simInputs.map(s => s.collection).filter(Boolean).slice(0, 5));
+  // Use actual min/max from skin data — these affect avgWearNorm and output wear categories
+  const simInputs: SimInputItem[] = parentItems.map(i => {
+    const skin = csgoResolver.resolveSkinByKey(i.paint_index, i.weapon_id);
+    return {
+      name: '', rarity: parent.rarity, paintIndex: i.paint_index,
+      defIndex: i.weapon_id, wearFloat: i.wear_float,
+      minFloat: skin?.minFloat ?? 0, maxFloat: skin?.maxFloat ?? 1,
+      collection: skin?.collection || '',
+      isStatTrak: false, isSouvenir: false,
+    };
+  });
+  console.log('[AutoSub] Parent items:', simInputs.map(s => `${s.collection} [${s.minFloat}-${s.maxFloat}] w=${s.wearFloat}`).join(', '));
   const parentSim = simulateTradeUp(simInputs);
   console.log(`[AutoSub] Parent sim ok=${parentSim.success} target=${parentSim.targetRarityZh} colls=${parentSim.collectionsUsed}`);
 
