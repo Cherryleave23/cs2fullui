@@ -13,6 +13,8 @@ interface InventoryTableProps {
   onItemClick?: (item: ResolvedItem) => void;
   selectable?: boolean;
   maxSelect?: number;
+  /** marketHashName → current price map from price cache */
+  priceMap?: Record<string, number>;
 }
 
 const STATTRAK_COLOR = '#cf6a32';
@@ -22,6 +24,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
   onItemClick,
   selectable = false,
   maxSelect = 10,
+  priceMap,
 }) => {
   const {
     filteredItems,
@@ -121,6 +124,18 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
         ),
       },
       {
+        title: '价格',
+        dataIndex: 'price',
+        key: 'price',
+        width: 90,
+        align: 'right' as const,
+        render: (_: any, record: ResolvedItem) => {
+          const price = priceMap?.[record.marketHashName];
+          if (price == null) return <Text type="secondary" style={{ fontSize: 12 }}>-</Text>;
+          return <Text strong style={{ fontSize: 12, color: '#52c41a' }}>¥{price.toFixed(2)}</Text>;
+        },
+      },
+      {
         title: '磨损',
         dataIndex: 'paintWear',
         key: 'wear',
@@ -172,7 +187,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
     );
 
     return cols;
-  }, [selectedIds, sortField, sortOrder, selectable, onItemClick]);
+  }, [selectedIds, sortField, sortOrder, selectable, onItemClick, priceMap]);
 
   if (!loading && filteredItems.length === 0) {
     return (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Typography, Button, Space, message, Card } from 'antd';
-import { ReloadOutlined, ExportOutlined } from '@ant-design/icons';
+import { ReloadOutlined, ExportOutlined, DollarOutlined } from '@ant-design/icons';
 import InventoryTable from '../components/inventory/InventoryTable';
 import ItemFilterBar from '../components/inventory/ItemFilterBar';
 import ItemDetailDrawer from '../components/inventory/ItemDetailDrawer';
@@ -12,6 +12,8 @@ const { Title } = Typography;
 const InventoryPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [detailItem, setDetailItem] = useState<ResolvedItem | null>(null);
+  const [priceMap, setPriceMap] = useState<Record<string, number>>({});
+  const [priceLoading, setPriceLoading] = useState(false);
   const { setItems, setLoading } = useInventoryStore();
 
   // Load items from backend on mount
@@ -19,12 +21,29 @@ const InventoryPage: React.FC = () => {
     loadItems();
   }, []);
 
+  const loadPrices = useCallback(async (items: ResolvedItem[]) => {
+    setPriceLoading(true);
+    try {
+      const mhns = [...new Set(items.map(i => i.marketHashName).filter(Boolean))] as string[];
+      if (mhns.length === 0) { setPriceMap({}); setPriceLoading(false); return; }
+      const cached: any[] = await window.electronAPI.price.getCache({ itemHashNames: mhns });
+      const map: Record<string, number> = {};
+      for (const c of cached) {
+        if (c.current_price != null) map[c.item_hash_name] = c.current_price;
+      }
+      setPriceMap(map);
+    } catch { /* ignore */ }
+    setPriceLoading(false);
+  }, []);
+
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
       const result = await window.electronAPI.inventory.getItems();
       if (result.items) {
-        setItems(result.items as ResolvedItem[], result.stats as any);
+        const items = result.items as ResolvedItem[];
+        setItems(items, result.stats as any);
+        loadPrices(items);
       }
     } catch (err: any) {
       console.error('Failed to load inventory:', err);
@@ -69,6 +88,9 @@ const InventoryPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>库存管理</Title>
         <Space>
+          <Button icon={<DollarOutlined />} loading={priceLoading} onClick={() => loadPrices(useInventoryStore.getState().items)}>
+            刷新价格
+          </Button>
           <Button icon={<ExportOutlined />} onClick={handleExport} disabled={refreshing}>
             导出
           </Button>
@@ -86,7 +108,7 @@ const InventoryPage: React.FC = () => {
 
       <Card>
         <ItemFilterBar />
-        <InventoryTable onItemClick={setDetailItem} selectable />
+        <InventoryTable onItemClick={setDetailItem} selectable priceMap={priceMap} />
       </Card>
 
       <ItemDetailDrawer
