@@ -127,11 +127,34 @@ export function registerTradeUpIpc(botGetter: () => SteamBotService | null): voi
           await csqaService.fetch([...needFetch]);
         }
 
+        // Attach prices to outcomes
+        for (const out of result.outcomes) {
+          const mhn = (out as any).marketHashName || '';
+          if (mhn) {
+            const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+            (out as any).price = cached?.[0]?.current_price ?? null;
+          }
+        }
+
+        // Build input price map (keyed by assetId for renderer matching)
+        const inputPrices: Record<string, number> = {};
+        for (const inp of inputs) {
+          const mhn = (inp as any).marketHashName || '';
+          const assetId = (inp as any).assetId || '';
+          if (mhn) {
+            const cached = PriceRepo.getCache({ itemHashNames: [mhn] });
+            if (cached?.[0]?.current_price != null) {
+              inputPrices[assetId || mhn] = cached[0].current_price;
+            }
+          }
+        }
+
         const profit = calcProfit(inputs as any, result.outcomes.map(o => ({
           marketHashName: (o as any).marketHashName || '',
           probability: o.probability,
         })));
         (result as any).profit = profit;
+        (result as any).inputPrices = inputPrices;
       }
 
       return result;

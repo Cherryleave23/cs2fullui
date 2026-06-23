@@ -9,7 +9,7 @@ const { Title, Text } = Typography;
 
 const TradeUpPage: React.FC = () => {
   const { slots, outcomes, avgWearNorm, targetRarityZh, targetRarity, setSimulationResult,
-    setSimulating, simulating, error, clearAll, fillFromInventory } = useTradeUpStore();
+    setSimulating, simulating, error, clearAll, fillFromInventory, profit, inputPrices } = useTradeUpStore();
   const { items: invItems } = useInventoryStore();
 
   const [saveOpen, setSaveOpen] = useState(false);
@@ -166,6 +166,9 @@ const TradeUpPage: React.FC = () => {
                   {items.map((o, idx) => (
                     <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
                       <Text style={{ flex: 1, fontSize: 13 }} ellipsis>{o.nameZh || o.name}</Text>
+                      <Text style={{ fontSize: 11, color: '#888', minWidth: 60, textAlign: 'right' }}>
+                        {o.price != null ? `¥${o.price.toFixed(2)}` : '-'}
+                      </Text>
                       <Text style={{ fontSize: 11, color: '#888' }}>~{o.estWearFloat.toFixed(6)}</Text>
                       <Text style={{ fontSize: 11 }}>{o.estWearCategory}</Text>
                       <Progress percent={Math.round(o.probability * 100)} size="small"
@@ -176,6 +179,38 @@ const TradeUpPage: React.FC = () => {
               );
             });
           })()}
+
+          {/* Profit Summary */}
+          {profit && (
+            <Card size="small" style={{ marginTop: 12, background: profit.profit >= 0 ? '#f6ffed' : '#fff2f0' }}>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 11 }}>总成本</Text>
+                  <br /><Text strong>¥{profit.totalCost.toFixed(2)}</Text>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 11 }}>期望收益 (EV)</Text>
+                  <br /><Text strong>¥{profit.expectedValue.toFixed(2)}</Text>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 11 }}>预期利润</Text>
+                  <br /><Text strong style={{ color: profit.profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                    ¥{profit.profit.toFixed(2)}
+                  </Text>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 11 }}>ROI</Text>
+                  <br /><Text strong style={{ color: profit.profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
+                    {profit.roi.toFixed(1)}%
+                  </Text>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 11 }}>保本率</Text>
+                  <br /><Text strong>{profit.breakEvenRate.toFixed(1)}%</Text>
+                </div>
+              </div>
+            </Card>
+          )}
         </Card>
       )}
 

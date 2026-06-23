@@ -23,12 +23,23 @@ export interface TradeUpSlotItem {
 export interface SimOutcome {
   name: string;
   nameZh?: string;
+  marketHashName?: string;
   collection: string;
   probability: number;
   estWearFloat: number;
   estWearCategory: string;
   rarity: string;
   imageUrl?: string;
+  /** Cached price from CSQAQ (CNY), null if not available */
+  price?: number | null;
+}
+
+export interface ProfitData {
+  totalCost: number;
+  expectedValue: number;
+  profit: number;
+  roi: number;
+  breakEvenRate: number;
 }
 
 export interface TradeUpState {
@@ -39,6 +50,10 @@ export interface TradeUpState {
   targetRarityZh: string;
   simulating: boolean;
   error: string | null;
+  /** Profit calculation result */
+  profit: ProfitData | null;
+  /** Per-input price map (assetId/marketHashName → price) */
+  inputPrices: Record<string, number>;
 
   // Actions
   setSlot: (index: number, item: TradeUpSlotItem | null) => void;
@@ -51,6 +66,8 @@ export interface TradeUpState {
     targetRarity: string;
     targetRarityZh: string;
     error?: string;
+    profit?: ProfitData | null;
+    inputPrices?: Record<string, number>;
   }) => void;
   setSimulating: (v: boolean) => void;
   getFilledItems: () => TradeUpSlotItem[];
@@ -64,6 +81,8 @@ export const useTradeUpStore = create<TradeUpState>((set, get) => ({
   targetRarityZh: '',
   simulating: false,
   error: null,
+  profit: null,
+  inputPrices: {},
 
   setSlot: (index, item) => {
     const slots = [...get().slots];
@@ -101,7 +120,10 @@ export const useTradeUpStore = create<TradeUpState>((set, get) => ({
     set({ slots, error: null });
   },
 
-  clearAll: () => set({ slots: Array(10).fill(null), outcomes: [], error: null }),
+  clearAll: () => set({
+    slots: Array(10).fill(null), outcomes: [], error: null,
+    profit: null, inputPrices: {},
+  }),
 
   removeSlot: (index) => {
     const slots = [...get().slots];
@@ -116,6 +138,8 @@ export const useTradeUpStore = create<TradeUpState>((set, get) => ({
       targetRarity: result.targetRarity,
       targetRarityZh: result.targetRarityZh,
       error: result.error || null,
+      profit: result.profit || null,
+      inputPrices: result.inputPrices || {},
       simulating: false,
     });
   },

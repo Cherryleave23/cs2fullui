@@ -16,19 +16,25 @@ export function registerRecipeIpc(): void {
     const recipe = RecipeRepo.getById(id);
     if (!recipe) return null;
     const items = RecipeRepo.getItems(id);
-    // Enrich items with real skin names
+    // Enrich items with real skin names + correct-wear marketHashName for price lookup
+    const { getWearCategory } = require('../db/seed');
+    const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
+
     const enriched = items.map(i => {
       const skin = csgoResolver.resolveSkinByKey(i.paint_index, i.weapon_id);
-      // Strip wear suffix for display (actual wear is shown separately)
       const rawName = skin?.nameZh || skin?.name || `#${i.paint_index}|${i.weapon_id}`;
       const displayName = rawName.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
+      // Build correct market_hash_name: strip fixed wear from stored entry, apply actual wear
+      const wear = getWearCategory(i.wear_float);
+      const baseMhn = skin?.marketHashName || '';
+      const correctMhn = baseMhn
+        ? stripWear(baseMhn) + ' (' + wear.name + ')'
+        : '';
       return {
         ...i,
         skinName: displayName,
-        skinMinFloat: skin?.minFloat,
-        skinMaxFloat: skin?.maxFloat,
-        skinRarity: skin?.rarity,
         skinColor: skin?.rarityColor,
+        marketHashName: correctMhn || undefined,
       };
     });
     return { ...recipe, items: enriched, children: RecipeRepo.getByParent(id) };

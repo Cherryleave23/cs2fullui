@@ -26,17 +26,47 @@ const RecipePage: React.FC = () => {
   const [importOpen, setImportOpen] = useState(false);
   const [importJson, setImportJson] = useState('');
   const [executeResult, setExecuteResult] = useState<{ success: boolean; items: any[]; error?: string } | null>(null);
+  const [priceMap, setPriceMap] = useState<Record<string, number>>({});
 
   const load = async () => {
     setLoading(true);
     try {
       const list: any = await window.electronAPI.recipe.list();
-      setRecipes(Array.isArray(list) ? list.filter((r: any) => !r.parent_id) : []);
+      const parents = Array.isArray(list) ? list.filter((r: any) => !r.parent_id) : [];
+      setRecipes(parents);
+      // Also load prices for all parent recipes' items
+      loadRecipePrices(parents);
     } catch { setRecipes([]); }
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
+
+  // Load cached prices for a set of marketHashNames
+  const loadPrices = async (mhns: string[]) => {
+    if (mhns.length === 0) return;
+    try {
+      const cached: any[] = await window.electronAPI.price.getCache({ itemHashNames: [...new Set(mhns)] });
+      const map = { ...priceMap };
+      for (const c of cached) {
+        if (c.current_price != null) map[c.item_hash_name] = c.current_price;
+      }
+      setPriceMap(map);
+    } catch { /* ignore */ }
+  };
+
+  // Load prices for recipe items from given recipe list
+  const loadRecipePrices = async (list: RecipeData[]) => {
+    const mhns: string[] = [];
+    for (const r of list) {
+      const full = expandedDetails[r.id] || {};
+      const items = full.items || r.items || [];
+      for (const item of items) {
+        if (item.marketHashName) mhns.push(item.marketHashName);
+      }
+    }
+    if (mhns.length > 0) await loadPrices(mhns);
+  };
 
   // ── Actions ──
   const handleEdit = async (recipe: RecipeData) => {
@@ -161,6 +191,22 @@ const RecipePage: React.FC = () => {
         const full: any = await window.electronAPI.recipe.get(r.id);
         if (full) {
           setExpandedDetails(prev => ({ ...prev, [r.id]: full }));
+          // Load prices for the items in this expanded recipe
+          const mhns: string[] = [];
+          for (const item of full.items || []) {
+            if (item.marketHashName) mhns.push(item.marketHashName);
+          }
+          // Also collect outcome marketHashNames
+          const outcomes = full.outcome_summary;
+          if (outcomes) {
+            try {
+              const parsed = typeof outcomes === 'string' ? JSON.parse(outcomes) : outcomes;
+              for (const o of (Array.isArray(parsed) ? parsed : [])) {
+                if (o.marketHashName) mhns.push(o.marketHashName);
+              }
+            } catch { /* ignore */ }
+          }
+          await loadPrices(mhns);
         }
       }
     };
@@ -221,7 +267,9 @@ const RecipePage: React.FC = () => {
               <div style={{ marginBottom: 8 }}>
                 <Text strong style={{ fontSize: 13 }}>配方物品 ({items.length} 件):</Text>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                  {items.map((item: any, idx: number) => (
+                  {items.map((item: any, idx: number) => {
+                    const price = item.marketHashName ? priceMap[item.marketHashName] : undefined;
+                    return (
                     <span key={idx} style={{
                       fontSize: 11, padding: '2px 6px', background: '#fff', borderRadius: 4,
                       border: '1px solid #e8e8e8',
@@ -232,9 +280,12 @@ const RecipePage: React.FC = () => {
                       <span style={{ color: '#888', marginLeft: 4 }}>
                         磨损：{(item.wearFloat || item.wear_float)?.toFixed(16)}
                       </span>
+                      {price != null ? (
+                        <span style={{ color: '#52c41a', marginLeft: 4 }}>¥{price.toFixed(2)}</span>
+                      ) : null}
                       {item.assetId || item.asset_id ? <span style={{ color: 'green' }}> ✓</span> : ''}
                     </span>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}
@@ -263,10 +314,13 @@ const RecipePage: React.FC = () => {
                               <th style={{ textAlign: 'right', padding: '2px 8px' }}>概率</th>
                               <th style={{ textAlign: 'right', padding: '2px 8px' }}>预估磨损</th>
                               <th style={{ textAlign: 'left', padding: '2px 8px' }}>磨损类别</th>
+                              <th style={{ textAlign: 'right', padding: '2px 8px' }}>价格</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {items.map((o: any, idx: number) => (
+                            {items.map((o: any, idx: number) => {
+                              const oPrice = o.marketHashName ? priceMap[o.marketHashName] : undefined;
+                              return (
                               <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
                                 <td style={{ padding: '2px 8px' }}>{o.nameZh || o.name}</td>
                                 <td style={{ textAlign: 'right', padding: '2px 8px' }}>{(o.probability * 100).toFixed(1)}%</td>
@@ -274,8 +328,11 @@ const RecipePage: React.FC = () => {
                                   ~{o.estWearFloat?.toFixed(6) || '-'}
                                 </td>
                                 <td style={{ padding: '2px 8px' }}>{o.estWearCategory || '-'}</td>
+                                <td style={{ textAlign: 'right', padding: '2px 8px', color: oPrice != null ? '#52c41a' : '#888' }}>
+                                  {oPrice != null ? `¥${oPrice.toFixed(2)}` : '-'}
+                                </td>
                               </tr>
-                            ))}
+                            )})}
                           </tbody>
                         </table>
                       </div>
