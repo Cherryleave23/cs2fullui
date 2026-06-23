@@ -222,23 +222,58 @@ export class SteamBotService extends EventEmitter {
   get guardPending(): boolean { return this._guardCallback !== null; }
 
   /**
-   * Login — canonical token-first strategy.
+   * Login — canonical token-first strategy with 3 retries for network failures.
    *   1. DB lookup saved refresh_token + machine_token → try token login
    *   2. No token → password login with saved machineAuthToken (skip email guard)
    *   3. Proxy applied via applyProxy() before logOn
+   *   4. On timeout/network error: retry up to 2 more times (re-picks CM server)
    */
   async login(params: {
     accountName: string;
     password: string;
     proxyUrl?: string;
     nickname?: string;
-  }): Promise<LoginResult> {
+  }, retries = 2): Promise<LoginResult> {
     this._accountName = params.accountName;
     this._nickname = params.nickname || params.accountName;
 
     // Apply proxy before logOn
     applyProxy(this.client, params.proxyUrl);
 
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (attempt > 0) {
+        console.log(`[SteamBot] Retry ${attempt}/${retries} for ${params.accountName}...`);
+        await new Promise(r => setTimeout(r, 2000)); // wait 2s before retry
+      }
+
+      const result = await this._doLogin(params);
+      if (result.success) return result;
+
+      // Only retry on network failures, not auth errors
+      const isNetworkError = result.error?.includes('超时') || result.error?.includes('timeout')
+        || result.error?.includes('ETIMEDOUT') || result.error?.includes('ECONNRESET')
+        || result.error?.includes('disconnected') || result.error?.includes('Disconnected');
+      if (!isNetworkError) return result;
+
+      if (attempt < retries) {
+        // Re-create client to force CM re-selection
+        this.client.removeAllListeners();
+        this.client = new SteamUser({
+          enablePicsCache: true, changelistUpdateInterval: 60000,
+          webCompatibilityMode: true, autoRelogin: true,
+        });
+        this.csgo = new GlobalOffensive(this.client);
+        this._bindEvents();
+        applyProxy(this.client, params.proxyUrl);
+      }
+    }
+    return { success: false, error: '多次尝试后仍无法连接 — 请检查代理或稍后重试' };
+  }
+
+  private _doLogin(params: {
+    accountName: string;
+    password: string;
+  }): Promise<LoginResult> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this._pendingLogin = null;
@@ -248,13 +283,12 @@ export class SteamBotService extends EventEmitter {
       this._pendingLogin = {
         accountName: params.accountName,
         password: params.password,
-        nickname: params.nickname,
+        nickname: this._nickname || params.accountName,
         resolve,
         loginDone: false,
         timeout,
       };
 
-      // Look up saved tokens by account_name
       const saved = AccountRepo.getAll().find(a => a.account_name === params.accountName);
 
       if (saved?.refresh_token) {
