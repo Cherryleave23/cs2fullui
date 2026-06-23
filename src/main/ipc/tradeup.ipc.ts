@@ -8,7 +8,7 @@ import { PriceRepo } from '../db/repositories/price.repo';
 import { csqaService } from '../services/csqa.service';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
 import { getWearCategory } from '../db/seed';
-import type { SteamBotService } from '../services/steam-bot.service';
+import { getSteamBot } from '../services/steam-bot.service';
 
 /** 计算收益数据：总成本、EV、ROI、保本率 */
 function calcProfit(inputs: { marketHashName?: string; price?: number }[], outcomes: { marketHashName?: string; probability: number }[]) {
@@ -59,9 +59,8 @@ function calcProfit(inputs: { marketHashName?: string; price?: number }[], outco
 
 /**
  * Register trade-up IPC handlers.
- * @param botGetter Function that returns the current SteamBotService singleton
  */
-export function registerTradeUpIpc(botGetter: () => SteamBotService | null): void {
+export function registerTradeUpIpc(): void {
   // ── Simulate a trade-up (no GC call, pure math) ──
   ipcMain.handle(IPC_CHANNELS.TRADEUP_SIMULATE, async (_event, items: any[]) => {
     try {
@@ -183,10 +182,8 @@ export function registerTradeUpIpc(botGetter: () => SteamBotService | null): voi
   // ── Execute a real trade-up via GC ──
   ipcMain.handle(IPC_CHANNELS.TRADEUP_EXECUTE, async (_event, assetIds: string[]) => {
     try {
-      const bot = botGetter();
-      if (!bot) {
-        return { success: false, error: 'Steam 未连接，请先登录' };
-      }
+      const bot = getSteamBot();
+      if (!bot.isGCReady) return { success: false, error: 'Steam 未连接，请先登录' };
 
       const result = await executeTradeUp(bot, { assetIds });
       return result;

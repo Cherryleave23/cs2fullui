@@ -8,7 +8,6 @@ import { registerTradeUpIpc } from './tradeup.ipc';
 import { registerRecipeIpc } from './recipe.ipc';
 import { registerPriceIpc } from './price.ipc';
 import { registerSteamDirect } from './steam-direct';
-import { accountManager } from '../services/account-manager';
 import { getDbPath } from '../db/connection';
 
 export function registerAllIpcHandlers(): void {
@@ -38,8 +37,8 @@ export function registerAllIpcHandlers(): void {
 
   // ── Domain handlers ──
   registerAuthIpc();
-  registerInventoryIpc(() => accountManager.getActive() ?? null);
-  registerTradeUpIpc(() => accountManager.getActive() ?? null);
+  registerInventoryIpc();
+  registerTradeUpIpc();
   registerRecipeIpc();
   registerPriceIpc();
 }

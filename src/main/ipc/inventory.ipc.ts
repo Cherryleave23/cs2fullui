@@ -2,10 +2,11 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
+import { getSteamBot } from '../services/steam-bot.service';
 import type { SteamBotService } from '../services/steam-bot.service';
 import type { ResolvedItem } from '../../shared/types/item';
 
-export function registerInventoryIpc(botGetter: () => SteamBotService | null): void {
+export function registerInventoryIpc(_botGetter?: () => SteamBotService | null): void {
   // ── Get items ──
   ipcMain.handle(IPC_CHANNELS.INVENTORY_GET_ITEMS, async (_event, filter?: {
     rarity?: number;
@@ -27,14 +28,9 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
   // ── Refresh inventory — uses steam-direct client or AccountManager bot ──
   ipcMain.handle(IPC_CHANNELS.INVENTORY_REFRESH, async () => {
     try {
-      // Try steam-direct client first
-      let csgo: any = null;
-      try { csgo = require('../ipc/steam-direct').getCsgo(); } catch (_) {}
-      // Fallback to AccountManager bot
-      if (!csgo) {
-        const bot = botGetter();
-        if (bot?.isGCReady) csgo = bot.csgo;
-      }
+      // Use singleton bot service
+      const bot = getSteamBot();
+      const csgo: any = bot.isGCReady ? bot.csgo : null;
 
       if (!csgo) {
         // No GC connection — return whatever is already in DB
@@ -84,10 +80,8 @@ export function registerInventoryIpc(botGetter: () => SteamBotService | null): v
   // ── Inspect single item via GC ──
   ipcMain.handle(IPC_CHANNELS.INVENTORY_INSPECT_ITEM, async (_event, assetId: string, mode?: string) => {
     try {
-      const bot = botGetter();
-      if (!bot || !bot.isGCReady) {
-        return { error: 'GC 未连接' };
-      }
+      const bot = getSteamBot();
+      if (!bot.isGCReady) return { error: 'GC 未连接' };
 
       // Find item in inventory to get owner info
       const csgo = bot.csgo;
