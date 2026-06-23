@@ -83,6 +83,11 @@ export function registerSteamDirect(): void {
     try {
       const existing = AccountRepo.getAll().find(a => a.account_name === params.accountName);
       const bot = accountManager.getOrCreate(existing?.steam_id || params.accountName);
+      // Skip if already logged in (e.g., after auto-login)
+      if (bot.steamId) {
+        await accountManager.connectGC(bot.steamId);
+        return { success: true, steamId: bot.steamId, alreadyLoggedIn: true };
+      }
       const result = await bot.login(params);
       if (result.success && result.steamId) {
         await accountManager.connectGC(result.steamId);
