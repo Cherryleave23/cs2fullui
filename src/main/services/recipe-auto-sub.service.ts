@@ -13,6 +13,66 @@ function getCollection(paintIndex: number, weaponId: number): string {
   return skin?.collection || '';
 }
 
+/** Calculate normalized wear: clamp((wear - min) / (max - min), 0, 1) */
+function getWearNorm(item: ResolvedItem): number {
+  const range = (item.maxFloat || 1) - (item.minFloat || 0);
+  return range > 0 ? Math.max(0, Math.min(1, (item.paintWear - (item.minFloat || 0)) / range)) : 0;
+}
+
+/**
+ * Build a 10-item combination strictly matching the parent's collection distribution.
+ * If parent has 3 items from collection A and 7 from B, the sub-recipe must also have
+ * exactly 3 from A and 7 from B — no cross-collection borrowing.
+ *
+ * @param offset — skip the first `offset` best-matching items in each collection
+ *                 to generate alternative combinations for the same round.
+ */
+function buildCombination(
+  sortedByColl: Map<string, ResolvedItem[]>,
+  parentCollCounts: Map<string, number>,
+  offset: number,
+): ResolvedItem[] | null {
+  const sel: ResolvedItem[] = [];
+  const selAssetIds = new Set<string>();
+
+  // First pass: check every required collection has enough items at this offset
+  for (const [coll, need] of parentCollCounts) {
+    const items = sortedByColl.get(coll);
+    if (!items || items.length < offset + need) {
+      return null; // not enough items in this collection — combination impossible
+    }
+  }
+
+  // Second pass: fill exactly parentCount items from each collection, starting at offset
+  for (const [coll, need] of parentCollCounts) {
+    const items = sortedByColl.get(coll)!;
+    for (let i = offset; i < offset + need; i++) {
+      if (!selAssetIds.has(items[i].assetId)) {
+        sel.push(items[i]);
+        selAssetIds.add(items[i].assetId);
+      }
+    }
+  }
+
+  return sel;
+}
+
+/** Convert ResolvedItem → SimInputItem for simulation */
+function toSimInput(item: ResolvedItem): SimInputItem {
+  return {
+    name: item.resolvedName,
+    rarity: item.rarityName || '',
+    paintIndex: item.paintIndex,
+    defIndex: item.defIndex,
+    wearFloat: item.paintWear,
+    minFloat: item.minFloat,
+    maxFloat: item.maxFloat,
+    collection: item.collectionName || '',
+    isStatTrak: item.isStatTrak,
+    isSouvenir: item.isSouvenir,
+  };
+}
+
 export function generateSubRecipes(parentId: number): GenerationResult {
   console.log('[AutoSub] === Starting for parent:', parentId);
   const parent = RecipeRepo.getById(parentId);
@@ -22,7 +82,7 @@ export function generateSubRecipes(parentId: number): GenerationResult {
   const parentItems = RecipeRepo.getItems(parentId);
   console.log(`[AutoSub] Items: ${parentItems.length}, rarity: ${parent.rarity}, target: ${parent.target_rarity}, type: ${parent.type}`);
 
-  // Simulate parent — resolve real collection names from CsgoapiResolver
+  // ── 1. Simulate parent to get baseline ──
   const simInputs: SimInputItem[] = parentItems.map(i => ({
     name: '', rarity: parent.rarity, paintIndex: i.paint_index,
     defIndex: i.weapon_id, wearFloat: i.wear_float,
@@ -34,28 +94,41 @@ export function generateSubRecipes(parentId: number): GenerationResult {
   const parentSim = simulateTradeUp(simInputs);
   console.log(`[AutoSub] Parent sim ok=${parentSim.success} target=${parentSim.targetRarityZh} colls=${parentSim.collectionsUsed}`);
 
-  const parentNorm = parent.avg_wear_norm ?? parentSim.avgWearNorm;
-  const parentColls = new Set(parentSim.collectionsUsed);
+  if (!parentSim.success) return { success: false, subRecipes: [], error: 'Parent simulation failed: ' + (parentSim.error || 'unknown') };
 
-  // Find candidates
+  const parentNorm = parent.avg_wear_norm ?? parentSim.avgWearNorm;
+
+  // Collect parent output wear categories — sub-recipes must match this exactly
+  const parentWearCats = new Set(parentSim.outcomes.map(o => o.estWearCategory));
+  console.log('[AutoSub] Parent wear categories:', [...parentWearCats], 'norm:', parentNorm?.toFixed(4));
+
+  // Build parent collection counts for proportional fill
+  const parentCollCounts = new Map<string, number>();
+  for (const coll of parentSim.collectionsUsed) {
+    parentCollCounts.set(coll, (parentCollCounts.get(coll) || 0) + 1);
+  }
+
+  // ── 2. Find inventory candidates ──
   const allInv = InventoryRepo.getAllItems();
-  console.log(`[AutoSub] Inv skins: ${allInv.filter(i => i.resolvedType === 'skin').length}, parent colls: ${[...parentColls]}`);
+  const parentCollSet = new Set(parentSim.collectionsUsed);
   const candidates = allInv.filter(i => {
     if (i.resolvedType !== 'skin') return false;
     if (i.rarityNameZh !== parent.rarity && i.rarityName !== parent.rarity) return false;
-    if (!parentColls.has(i.collectionName)) return false;
+    if (!parentCollSet.has(i.collectionName)) return false;
     if (parent.is_stattrak === 1 && !i.isStatTrak) return false;
     if (parent.type === 'real' && i.assetId) {
       if (parentItems.some(pi => pi.asset_id === i.assetId)) return false;
     }
     return true;
   });
-  console.log(`[AutoSub] Candidates: ${candidates.length}`);
+  console.log(`[AutoSub] Candidates: ${candidates.length} (inv skins: ${allInv.filter(i => i.resolvedType === 'skin').length})`);
   if (candidates.length < 10) return { success: false, subRecipes: [], error: `Need 10 candidates, got ${candidates.length}` };
 
+  // ── 3. Track used assetIds ──
   const usedIds = new Set<string>();
-  if (parent.type === 'real') for (const pi of parentItems) { if (pi.asset_id) usedIds.add(pi.asset_id); }
-  // Also exclude items already used in existing children
+  if (parent.type === 'real') {
+    for (const pi of parentItems) { if (pi.asset_id) usedIds.add(pi.asset_id); }
+  }
   const existingChildren = RecipeRepo.getByParent(parentId);
   for (const child of existingChildren) {
     for (const ci of RecipeRepo.getItems(child.id)) {
@@ -64,8 +137,13 @@ export function generateSubRecipes(parentId: number): GenerationResult {
   }
   console.log('[AutoSub] Used IDs (parent + existing children): ' + usedIds.size);
 
+  // ── 4. Generate sub-recipes ──
   const subs: SubRecipeCandidate[] = [];
-  for (let r = 0; r < 20; r++) {
+  const MAX_ROUNDS = 30;
+  const MAX_ATTEMPTS = 5;
+
+  for (let r = 0; r < MAX_ROUNDS; r++) {
+    // Group remaining candidates by collection
     const byColl = new Map<string, ResolvedItem[]>();
     for (const c of candidates) {
       if (usedIds.has(c.assetId)) continue;
@@ -74,71 +152,100 @@ export function generateSubRecipes(parentId: number): GenerationResult {
       byColl.get(cn)!.push(c);
     }
 
-    // Sort each collection's items by wear norm proximity to parent norm
+    // Sort each collection by wear norm proximity to parent norm
     const sortedByColl = new Map<string, ResolvedItem[]>();
     for (const [coll, items] of byColl) {
       sortedByColl.set(coll, [...items].sort((a, b) => {
-        const na = ((a.paintWear - (a.minFloat || 0)) / Math.max(0.001, (a.maxFloat || 1) - (a.minFloat || 0)));
-        const nb = ((b.paintWear - (b.minFloat || 0)) / Math.max(0.001, (b.maxFloat || 1) - (b.minFloat || 0)));
-        return Math.abs(na - parentNorm) - Math.abs(nb - parentNorm);
+        return Math.abs(getWearNorm(a) - parentNorm) - Math.abs(getWearNorm(b) - parentNorm);
       }));
     }
 
-    const sel: ResolvedItem[] = [];
-    // Pass 1: fill proportionally from each parent collection
-    for (const [coll, items] of sortedByColl) {
-      const parentCount = parentSim.collectionsUsed.filter(cc => cc === coll).length;
-      const need = parentCount;
-      for (let i = 0; i < Math.min(need, items.length) && sel.length < 10; i++) sel.push(items[i]);
+    // Check total available
+    let totalAvail = 0;
+    for (const items of sortedByColl.values()) totalAvail += items.length;
+    if (totalAvail < 10) {
+      console.log(`[AutoSub] Round ${r}: only ${totalAvail} items left, stopping`);
+      break;
     }
-    // Pass 2: if still short, fill from any available collection
-    if (sel.length < 10) {
-      for (const items of sortedByColl.values()) {
-        for (const item of items) {
-          if (sel.length >= 10) break;
-          if (!sel.includes(item)) sel.push(item);
-        }
-        if (sel.length >= 10) break;
+
+    let found = false;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS && !found; attempt++) {
+      const sel = buildCombination(sortedByColl, parentCollCounts, attempt);
+      if (!sel) {
+        console.log(`[AutoSub] R${r}A${attempt}: insufficient items at offset ${attempt} to match parent distribution`);
+        continue;
       }
-    }
-    console.log(`[AutoSub] R${r}: selected ${sel.length} items (strict=${sel.length===10})`);
 
-    if (sel.length < 10) { console.log(`[AutoSub] Round ${r}: only ${sel.length} items left`); break; }
+      // Calculate avg wear norm
+      const norms = sel.map(i => getWearNorm(i));
+      const avgN = norms.reduce((a, b) => a + b, 0) / 10;
 
+      // Simulate sub-recipe
+      const subSim = simulateTradeUp(sel.map(i => toSimInput(i)));
 
-    const norms = sel.map(i => {
-      const range = (i.maxFloat || 1) - (i.minFloat || 0);
-      return range > 0 ? Math.max(0, Math.min(1, (i.paintWear - (i.minFloat || 0)) / range)) : 0;
-    });
-    const avgN = norms.reduce((a, b) => a + b, 0) / 10;
-    console.log(`[AutoSub] R${r}: avgNorm=${avgN.toFixed(4)} parentNorm=${parentNorm?.toFixed(4)}`);
+      if (!subSim.success) {
+        console.log(`[AutoSub] R${r}A${attempt}: sim failed`);
+        continue;
+      }
+      if (subSim.targetRarityZh !== parentSim.targetRarityZh) {
+        console.log(`[AutoSub] R${r}A${attempt}: rarity mismatch ${subSim.targetRarityZh} vs ${parentSim.targetRarityZh}`);
+        continue;
+      }
 
-    const subSim = simulateTradeUp(sel.map(i => ({
-      name: i.resolvedName, rarity: i.rarityName || '',
-      paintIndex: i.paintIndex, defIndex: i.defIndex,
-      wearFloat: i.paintWear, minFloat: i.minFloat, maxFloat: i.maxFloat,
-      collection: i.collectionName || '', isStatTrak: i.isStatTrak, isSouvenir: i.isSouvenir,
-    })));
+      // ═══════════════════════════════════════════
+      //  Wear level validation:
+      //  All possible output wear categories must match exactly
+      // ═══════════════════════════════════════════
+      const subWearCats = new Set(subSim.outcomes.map(o => o.estWearCategory));
+      const wearMatch = parentWearCats.size === subWearCats.size &&
+        [...parentWearCats].every(c => subWearCats.has(c));
 
-    if (subSim.success && subSim.targetRarityZh === parentSim.targetRarityZh) {
+      if (!wearMatch) {
+        console.log(`[AutoSub] R${r}A${attempt}: wear mismatch parent:[${[...parentWearCats]}] sub:[${[...subWearCats]}] norm=${avgN.toFixed(4)}`);
+        continue;
+      }
+
+      // ── Valid sub-recipe! ──
       for (const s of sel) usedIds.add(s.assetId);
+
+      const childIdx = subs.length + 1;
       RecipeRepo.create({
-        name: parent.name + ' - 子方案' + (r + 1),
-        type: 'real', rarity: parent.rarity, targetRarity: parent.target_rarity,
-        isStatTrak: parent.is_stattrak === 1, avgWearNorm: avgN,
-        avgTargetWear: parentNorm, parentId,
+        name: parent.name + ' - 子方案' + childIdx,
+        type: 'real',
+        rarity: parent.rarity,
+        targetRarity: parent.target_rarity,
+        isStatTrak: parent.is_stattrak === 1,
+        avgWearNorm: avgN,
+        avgTargetWear: parentNorm,
+        parentId,
         items: sel.map((item, idx) => ({
-          paint_index: item.paintIndex, weapon_id: item.defIndex,
-          wear_float: item.paintWear, asset_id: item.assetId || null,
-          stattrak: item.isStatTrak ? 1 : 0, souvenir: item.isSouvenir ? 1 : 0,
+          paint_index: item.paintIndex,
+          weapon_id: item.defIndex,
+          wear_float: item.paintWear,
+          asset_id: item.assetId || null,
+          stattrak: item.isStatTrak ? 1 : 0,
+          souvenir: item.isSouvenir ? 1 : 0,
           position: idx,
         })),
       });
-      subs.push({ items: sel, avgWearNorm: avgN, normDiff: Math.abs(avgN - parentNorm),
-        targetRarity: subSim.targetRarity, targetRarityZh: subSim.targetRarityZh });
-      console.log(`[AutoSub] R${r}: created sub-recipe`);
+
+      subs.push({
+        items: sel,
+        avgWearNorm: avgN,
+        normDiff: Math.abs(avgN - parentNorm),
+        targetRarity: subSim.targetRarity,
+        targetRarityZh: subSim.targetRarityZh,
+      });
+      console.log(`[AutoSub] R${r}A${attempt}: ✓ sub #${childIdx} norm=${avgN.toFixed(4)} diff=${Math.abs(avgN - parentNorm).toFixed(4)}`);
+      found = true;
+    }
+
+    if (!found) {
+      console.log(`[AutoSub] Round ${r}: no valid combination after ${MAX_ATTEMPTS} attempts, stopping`);
+      break;
     }
   }
+
   console.log(`[AutoSub] Done: ${subs.length} sub-recipes`);
   return { success: true, subRecipes: subs };
 }
