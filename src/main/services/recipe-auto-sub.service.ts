@@ -85,15 +85,23 @@ export function generateSubRecipes(parentId: number): GenerationResult {
     }
 
     const sel: ResolvedItem[] = [];
+    // Pass 1: fill proportionally from each parent collection
     for (const [coll, items] of sortedByColl) {
       const parentCount = parentSim.collectionsUsed.filter(cc => cc === coll).length;
-      const need = parentCount; // 父配方中有 N 件来自此 collection，子配方也需要 N 件
+      const need = parentCount;
       for (let i = 0; i < Math.min(need, items.length) && sel.length < 10; i++) sel.push(items[i]);
     }
-    // 如果配比不足或超额，跳过本轮
-    const roundColls = new Set(sel.map(i => i.collectionName));
-    const roundRatioOk = parentSim.collectionsUsed.every(cc => roundColls.has(cc));
-    if (sel.length !== 10 || !roundRatioOk) { console.log(`[AutoSub] Round ${r}: ratio mismatch (${sel.length} items)`); continue; }
+    // Pass 2: if still short, fill from any available collection
+    if (sel.length < 10) {
+      for (const items of sortedByColl.values()) {
+        for (const item of items) {
+          if (sel.length >= 10) break;
+          if (!sel.includes(item)) sel.push(item);
+        }
+        if (sel.length >= 10) break;
+      }
+    }
+    console.log(`[AutoSub] R${r}: selected ${sel.length} items (strict=${sel.length===10})`);
 
     if (sel.length < 10) { console.log(`[AutoSub] Round ${r}: only ${sel.length} items left`); break; }
 
