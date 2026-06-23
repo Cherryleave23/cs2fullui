@@ -160,16 +160,19 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
         ),
       },
       {
-        title: '武器类型',
-        dataIndex: 'weaponType',
-        key: 'weaponType',
-        width: 90,
+        title: '可交易',
+        dataIndex: 'tradableAfter',
+        key: 'tradable',
+        width: 100,
         sorter: true,
-        responsive: ['md' as const],
-        sortOrder: toSortOrder('weaponType'),
-        render: (val: string) => (
-          <Text style={{ fontSize: 12 }}>{val || '-'}</Text>
-        ),
+        sortOrder: toSortOrder('tradableAfter'),
+        render: (val: string) => {
+          if (!val) return <Text style={{ fontSize: 12, color: '#52c41a' }}>可交易</Text>;
+          const d = new Date(val);
+          const now = Date.now();
+          if (d.getTime() <= now) return <Text style={{ fontSize: 12, color: '#52c41a' }}>可交易</Text>;
+          return <Text style={{ fontSize: 11, color: '#faad14' }}>{d.toLocaleDateString('zh-CN')}</Text>;
+        },
       },
       {
         title: '收藏品',
