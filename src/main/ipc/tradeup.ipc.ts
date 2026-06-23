@@ -94,9 +94,13 @@ export function registerTradeUpIpc(botGetter: () => SteamBotService | null): voi
         const skin = csgoResolver.resolveSkinByKey(i.paintIndex ?? 0, i.defIndex ?? 0);
         const wearFloat = i.paintWear ?? i.wearFloat ?? 0;
         const wear = getWearCategory(wearFloat);
-        const mhn = skin?.marketHashName
+        const isST = i.isStatTrak || i.is_stattrak;
+        const isSV = i.isSouvenir || i.is_souvenir;
+        let mhn = skin?.marketHashName
           ? stripWear(skin.marketHashName) + ' (' + wear.name + ')'
           : '';
+        if (mhn && isST) mhn = 'StatTrak™ ' + mhn;
+        if (mhn && isSV) mhn = 'Souvenir ' + mhn;
         return {
           assetId: i.assetId || '',
           name: i.resolvedName || i.name || 'Unknown',
