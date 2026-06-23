@@ -268,8 +268,8 @@ const RecipePage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Expanded: show parent items + outcomes (only when parent detail is expanded) */}
-        {isExpanded && !isChild && (() => {
+        {/* Expanded: show recipe items + outcomes */}
+        {isExpanded && (() => {
           const detail = expandedDetails[r.id] || {};
           const items = detail.items || r.items || [];
           const outcomes = detail.outcome_summary || r.outcome_summary;
