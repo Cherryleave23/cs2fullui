@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Tabs, Typography, Button, Input, Form, message, Descriptions, Tag, Space, Alert, Divider } from 'antd';
+import { useAuthStore } from '../stores/useAuthStore';
 import {
   UserOutlined, LockOutlined, GlobalOutlined, DatabaseOutlined,
   BgColorsOutlined, InfoCircleOutlined, SaveOutlined,
@@ -244,6 +245,9 @@ const SettingsPage: React.FC = () => {
               const res: any = await window.electronAPI.auth.loginAll();
               if (res?.success) {
                 message.success({ content: `已登录 ${res.count} 个账号`, key: 'loginAll' });
+                // Refresh account list in store so sidebar shows online status
+                const list = await window.electronAPI.auth.getAccounts();
+                useAuthStore.getState().setAccounts(list as any);
               } else {
                 message.error({ content: res?.error || '登录失败', key: 'loginAll' });
               }

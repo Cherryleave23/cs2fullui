@@ -118,6 +118,7 @@ const electronAPI = {
   // ── Direct Steam login + token persistence ──
   steamLogin: (params: { accountName: string; password: string; proxyUrl?: string; nickname?: string }) =>
     ipcRenderer.invoke('steam:login', params),
+  steamAutoLogin: () => ipcRenderer.invoke('steam:auto-login'),
   steamGuard: (params: { code: string }) =>
     ipcRenderer.invoke('steam:guard', params),
   steamListSaved: () => ipcRenderer.invoke('steam:list-saved'),
