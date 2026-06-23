@@ -252,11 +252,11 @@ const RecipePage: React.FC = () => {
                   const color = p.profit >= 0 ? '#52c41a' : '#ff4d4f';
                   return (
                     <Space size={6} style={{ marginLeft: 8 }}>
-                      <Text style={{ fontSize: 10, color: '#888' }}>成本<Text style={{ color: '#333', fontWeight: 500 }}>¥{Number(p.totalCost).toFixed(0)}</Text></Text>
-                      <Text style={{ fontSize: 10, color: '#888' }}>EV<Text style={{ color: '#333', fontWeight: 500 }}>¥{Number(p.expectedValue).toFixed(0)}</Text></Text>
-                      <Text style={{ fontSize: 10, color }}>利润<Text style={{ fontWeight: 500 }}>¥{Number(p.profit).toFixed(0)}</Text></Text>
-                      <Text style={{ fontSize: 10, color }}>ROI<Text style={{ fontWeight: 500 }}>{Number(p.roi).toFixed(1)}%</Text></Text>
-                      <Text style={{ fontSize: 10, color: '#888' }}>保本<Text style={{ color: '#333' }}>{Number(p.breakEvenRate).toFixed(1)}%</Text></Text>
+                      <Text style={{ fontSize: 10, color: '#888' }}>成本<Text style={{ color: '#333', fontWeight: 500 }}>¥{Number(p.totalCost).toFixed(2)}</Text></Text>
+                      <Text style={{ fontSize: 10, color: '#888' }}>EV<Text style={{ color: '#333', fontWeight: 500 }}>¥{Number(p.expectedValue).toFixed(2)}</Text></Text>
+                      <Text style={{ fontSize: 10, color }}>利润<Text style={{ fontWeight: 500 }}>¥{Number(p.profit).toFixed(2)}</Text></Text>
+                      <Text style={{ fontSize: 10, color }}>ROI<Text style={{ fontWeight: 500 }}>{Number(p.roi).toFixed(2)}%</Text></Text>
+                      <Text style={{ fontSize: 10, color: '#888' }}>保本<Text style={{ color: '#333' }}>{Number(p.breakEvenRate).toFixed(2)}%</Text></Text>
                     </Space>
                   );
                 } catch { return null; }

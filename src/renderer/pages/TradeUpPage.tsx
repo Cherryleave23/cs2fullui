@@ -209,12 +209,12 @@ const TradeUpPage: React.FC = () => {
                 <div>
                   <Text type="secondary" style={{ fontSize: 11 }}>ROI</Text>
                   <br /><Text strong style={{ color: profit.profit >= 0 ? '#52c41a' : '#ff4d4f' }}>
-                    {profit.roi.toFixed(1)}%
+                    {profit.roi.toFixed(2)}%
                   </Text>
                 </div>
                 <div>
                   <Text type="secondary" style={{ fontSize: 11 }}>保本率</Text>
-                  <br /><Text strong>{profit.breakEvenRate.toFixed(1)}%</Text>
+                  <br /><Text strong>{profit.breakEvenRate.toFixed(2)}%</Text>
                 </div>
               </div>
             </Card>
