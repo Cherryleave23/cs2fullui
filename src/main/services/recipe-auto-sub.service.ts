@@ -228,6 +228,7 @@ export function generateSubRecipes(parentId: number): GenerationResult {
         avgWearNorm: avgN,
         avgTargetWear: parentNorm,
         parentId,
+        outcomeSummary: JSON.stringify(subSim.outcomes),
         items: sel.map((item, idx) => ({
           paint_index: item.paintIndex,
           weapon_id: item.defIndex,

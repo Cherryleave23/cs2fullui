@@ -4,6 +4,9 @@ import { RecipeRepo } from '../db/repositories/recipe.repo';
 import { InventoryRepo } from '../db/repositories/inventory.repo';
 import { csgoResolver } from '../services/csgoapi-resolver.service';
 import { generateSubRecipes } from '../services/recipe-auto-sub.service';
+import { getWearCategory } from '../db/seed';
+
+const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
 
 export function registerRecipeIpc(): void {
   // ── List all recipes (parent + children) ──
@@ -17,8 +20,6 @@ export function registerRecipeIpc(): void {
     if (!recipe) return null;
     const items = RecipeRepo.getItems(id);
     // Enrich items with real skin names + correct-wear marketHashName for price lookup
-    const { getWearCategory } = require('../db/seed');
-    const stripWear = (s: string) => s.replace(/\s*[（(][^)）]*[)）]\s*$/, '');
 
     const enriched = items.map(i => {
       const skin = csgoResolver.resolveSkinByKey(i.paint_index, i.weapon_id);

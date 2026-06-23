@@ -18,7 +18,7 @@ function stripWear(name: string): string {
 interface AutocompleteSlotProps { index: number; }
 
 const AutocompleteSlot: React.FC<AutocompleteSlotProps> = ({ index }) => {
-  const { slots, setSlot, removeSlot } = useTradeUpStore();
+  const { slots, setSlot, removeSlot, inputPrices } = useTradeUpStore();
   const item = slots[index];
   const [options, setOptions] = useState<any[]>([]);
   const [searchText, setSearchText] = useState('');
@@ -124,6 +124,12 @@ const AutocompleteSlot: React.FC<AutocompleteSlotProps> = ({ index }) => {
           {wearError && (
             <Text type="danger" style={{ fontSize: 9 }}>
               超出合法范围 ({item.minFloat.toFixed(2)}–{item.maxFloat.toFixed(2)})
+            </Text>
+          )}
+          {/* Price from cache (only for inventory items with assetId) */}
+          {item.assetId && inputPrices[item.assetId] != null && (
+            <Text style={{ fontSize: 10, color: '#52c41a' }}>
+              ¥{inputPrices[item.assetId].toFixed(2)}
             </Text>
           )}
         </Space>
