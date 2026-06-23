@@ -37,6 +37,11 @@ export function registerPriceIpc(): void {
   // 刷新全部库存物品的价格
   ipcMain.handle(IPC_CHANNELS.PRICE_REFRESH_ALL, async () => {
     try {
+      const token = SettingsRepo.get('csqaq_api_token', '') || '';
+      if (!token) {
+        return { error: '请先在设置页面配置 CSQAQ API Token', fetched: 0, failed: 0 };
+      }
+
       // Collect names from inventory (always works, no dependency on prior cache)
       const items = InventoryRepo.getAllItems();
       const mhns = [...new Set(items.map(i => i.marketHashName).filter(Boolean))] as string[];
@@ -84,6 +89,11 @@ export function registerPriceIpc(): void {
   // 从库存拉取价格（跳过 1 小时内已更新的）
   ipcMain.handle(IPC_CHANNELS.PRICE_FETCH_INVENTORY, async () => {
     try {
+      const token = SettingsRepo.get('csqaq_api_token', '') || '';
+      if (!token) {
+        return { error: '请先在设置页面配置 CSQAQ API Token', fetched: 0 };
+      }
+
       const items = InventoryRepo.getAllItems();
       console.log(`[Price] Inventory items count: ${items.length}`);
       const mhns = [...new Set(items.map(i => i.marketHashName).filter(Boolean))] as string[];
