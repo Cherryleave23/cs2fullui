@@ -331,12 +331,52 @@ class CsgoapiResolver {
     const data: any[] = [];
     // Build reverse index: skin name → collection name
     const nameToColl = new Map<string, string>();
+
+    // Build paint_index → skin entry lookup for cross-referencing
+    // Collection-set references have paint_index but not weapon_id, so prefix-match skinByKey
+    const byPaintIndex = new Map<string, any>();
+    for (const [key, entry] of this.skinByKey) {
+      const paintIdx = key.split('|')[0];
+      if (!byPaintIndex.has(paintIdx)) byPaintIndex.set(paintIdx, entry);
+    }
+
+    // Also build name → entry lookup (names without wear suffixes)
+    const byName = new Map<string, any>();
+    for (const entry of this.skinByKey.values()) {
+      const n = (entry.name || '').replace(/\s*[（(][^)）]*[)）]\s*$/g, '');
+      if (!byName.has(n)) byName.set(n, entry);
+    }
+
     for (const [key, entry] of Object.entries(all)) {
       if (!key.startsWith('collection-set-') || !entry || typeof entry !== 'object') continue;
       const coll = entry as any;
       if (!coll.contains) continue;
-      data.push({ id: coll.name || key, name: coll.name || key, contains: coll.contains });
-      // Map each skin in this collection back to the collection name
+
+      // Enrich each contains reference with full skin data from skinByKey.
+      // Collection-set contains entries are references: {id, name, rarity, paint_index, image}
+      // They lack min_float, max_float, market_hash_name — cross-reference via paint_index or name.
+      const enrichedContains = coll.contains.map((skin: any) => {
+        // Match 1: by paint_index prefix in skinByKey
+        let full = skin.paint_index != null
+          ? byPaintIndex.get(String(skin.paint_index))
+          : null;
+        // Match 2: by name (strip wear suffixes on both sides)
+        if (!full) {
+          const stripped = (skin.name || '').replace(/\s*[（(][^)）]*[)）]\s*$/g, '');
+          full = byName.get(stripped);
+        }
+        return {
+          name: skin.name,
+          rarity: skin.rarity,
+          market_hash_name: full?.market_hash_name || '',
+          min_float: full?.min_float ?? 0,
+          max_float: full?.max_float ?? 1,
+        };
+      });
+
+      data.push({ id: coll.name || key, name: coll.name || key, contains: enrichedContains });
+
+      // Map each skin name back to the collection name
       for (const skin of coll.contains) {
         if (skin.name) nameToColl.set(skin.name, coll.name);
       }
