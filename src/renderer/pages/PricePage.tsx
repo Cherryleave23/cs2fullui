@@ -59,7 +59,9 @@ const PricePage: React.FC = () => {
       if (result.error) {
         message.error('拉取失败: ' + result.error);
       } else {
-        message.success(result.note);
+        const parts = [result.note];
+        if (result.failed > 0) parts.push(`失败 ${result.failed} 个`);
+        message.success(parts.join('，'));
         loadData();
       }
     } catch (err: any) {
@@ -114,7 +116,7 @@ const PricePage: React.FC = () => {
         <Title level={3} style={{ margin: 0 }}>价格行情</Title>
         <Space>
           <Button icon={<CloudDownloadOutlined />} loading={inventoryLoading} onClick={handleFetchInventory}>
-            从库存拉取
+            从库存拉取价格
           </Button>
           <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh}>
             刷新全部

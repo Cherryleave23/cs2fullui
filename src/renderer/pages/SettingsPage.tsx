@@ -5,7 +5,7 @@ import {
   UserOutlined, LockOutlined, GlobalOutlined, DatabaseOutlined,
   BgColorsOutlined, InfoCircleOutlined, SaveOutlined,
   CheckCircleOutlined, WarningOutlined, KeyOutlined,
-  LoginOutlined,
+  LoginOutlined, PlusOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 const { Title, Paragraph, Text } = Typography;
 
@@ -170,44 +170,186 @@ const MinimalLogin: React.FC = () => {
   );
 };
 
-// ── CSQAQ Token 配置 ──
-const CsqaTokenConfig: React.FC = () => {
-  const [token, setToken] = useState('');
+// ── CSQAQ 账号配置（带备注） ──
+const CsqaAccountConfig: React.FC = () => {
+  const [accounts, setAccounts] = useState<Array<{ label: string; token: string }>>([{ label: '', token: '' }]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    window.electronAPI.price.getCsqaToken().then((r: any) => {
-      if (r?.token) setToken(r.token);
+    window.electronAPI.price.getCsqaAccounts().then((r: any) => {
+      if (r?.accounts && Array.isArray(r.accounts) && r.accounts.length > 0) {
+        setAccounts(r.accounts);
+      }
     });
   }, []);
 
-  const handleSave = async () => {
-    setSaving(true);
-    await window.electronAPI.price.setCsqaToken(token);
-    setSaving(false);
-    message.success('CSQAQ Token 已保存');
+  const handleAdd = () => setAccounts([...accounts, { label: '', token: '' }]);
+  const handleRemove = (idx: number) => setAccounts(accounts.filter((_, i) => i !== idx));
+  const handleChange = (idx: number, field: 'label' | 'token', value: string) => {
+    const next = [...accounts];
+    next[idx] = { ...next[idx], [field]: value };
+    setAccounts(next);
   };
+
+  const handleSave = async () => {
+    const clean = accounts
+      .filter(a => a.token && a.token.trim())
+      .map(a => ({ label: (a.label || '').trim() || '未命名账号', token: a.token.trim() }));
+    setSaving(true);
+    await window.electronAPI.price.setCsqaAccounts(clean);
+    setSaving(false);
+    setAccounts(clean.length > 0 ? clean : [{ label: '', token: '' }]);
+    message.success(`已保存 ${clean.length} 个 CSQAQ 账号`);
+  };
+
+  const validCount = accounts.filter(a => a.token && a.token.trim()).length;
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Title level={5}>CSQAQ API 配置</Title>
       <Paragraph type="secondary">
-        CSQAQ 提供聚合市场价（Buff / 悠悠有品 / Steam），
-        需要 ApiToken 才能使用。从 CSQAQ 网站获取后填入即可。
+        CSQAQ 提供聚合市场价（Buff / 悠悠有品 / Steam），需要 ApiToken 才能使用。
+        支持配置多个账号 Token，多账号时自动并行拉取以加速价格获取。
       </Paragraph>
-      <Input.Password
-        prefix={<KeyOutlined />}
-        value={token}
-        onChange={e => setToken(e.target.value)}
-        placeholder="输入 CSQAQ API Token"
-        size="large"
-        style={{ maxWidth: 400 }}
-      />
-      <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-        保存 Token
-      </Button>
+
+      {accounts.map((acc, idx) => (
+        <Space key={idx} style={{ width: '100%' }} align="center">
+          <Tag color={acc.token.trim() ? 'green' : 'default'} style={{ minWidth: 72, textAlign: 'center' }}>
+            账号 {idx + 1}
+          </Tag>
+          <Input
+            value={acc.label}
+            onChange={e => handleChange(idx, 'label', e.target.value)}
+            placeholder="备注名"
+            style={{ width: 120 }}
+          />
+          <Input.Password
+            prefix={<KeyOutlined />}
+            value={acc.token}
+            onChange={e => handleChange(idx, 'token', e.target.value)}
+            placeholder="CSQAQ ApiToken"
+            size="large"
+            style={{ flex: 1, maxWidth: 350 }}
+          />
+          {accounts.length > 1 && (
+            <Button danger icon={<DeleteOutlined />} onClick={() => handleRemove(idx)} size="large" />
+          )}
+        </Space>
+      ))}
+
+      <Space>
+        <Button icon={<PlusOutlined />} onClick={handleAdd}>添加账号</Button>
+        <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>保存全部</Button>
+      </Space>
+
+      {validCount > 1 && (
+        <Alert type="info" showIcon message={`已配置 ${validCount} 个账号，拉取价格时将自动并行分配批次`} />
+      )}
     </Space>
   );
+};
+
+// ── C5 账号配置 ──
+const C5AccountConfig: React.FC = () => {
+  const [accounts, setAccounts] = useState<Array<{ label: string; appKey: string }>>([{ label: '', appKey: '' }]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    window.electronAPI.price.getC5Accounts().then((r: any) => {
+      if (r?.accounts && Array.isArray(r.accounts) && r.accounts.length > 0) {
+        setAccounts(r.accounts);
+      }
+    });
+  }, []);
+
+  const handleAdd = () => setAccounts([...accounts, { label: '', appKey: '' }]);
+  const handleRemove = (idx: number) => setAccounts(accounts.filter((_, i) => i !== idx));
+  const handleChange = (idx: number, field: 'label' | 'appKey', value: string) => {
+    const next = [...accounts];
+    next[idx] = { ...next[idx], [field]: value };
+    setAccounts(next);
+  };
+
+  const handleSave = async () => {
+    const clean = accounts
+      .filter(a => a.appKey && a.appKey.trim())
+      .map(a => ({ label: (a.label || '').trim() || '未命名账号', appKey: a.appKey.trim() }));
+    setSaving(true);
+    await window.electronAPI.price.setC5Accounts(clean);
+    setSaving(false);
+    setAccounts(clean.length > 0 ? clean : [{ label: '', appKey: '' }]);
+    message.success(`已保存 ${clean.length} 个 C5 账号`);
+  };
+
+  const validCount = accounts.filter(a => a.appKey && a.appKey.trim()).length;
+
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Title level={5}>C5GAME API 配置</Title>
+      <Paragraph type="secondary">
+        C5GAME 开放平台，提供饰品价格和在售数据。
+        App-Key 可在 C5GAME 个人中心 - API 管理页面申请。限流 50qps，多账号可并行加速。
+      </Paragraph>
+
+      {accounts.map((acc, idx) => (
+        <Space key={idx} style={{ width: '100%' }} align="center">
+          <Tag color={acc.appKey.trim() ? 'green' : 'default'} style={{ minWidth: 72, textAlign: 'center' }}>
+            账号 {idx + 1}
+          </Tag>
+          <Input
+            value={acc.label}
+            onChange={e => handleChange(idx, 'label', e.target.value)}
+            placeholder="备注名"
+            style={{ width: 120 }}
+          />
+          <Input.Password
+            prefix={<KeyOutlined />}
+            value={acc.appKey}
+            onChange={e => handleChange(idx, 'appKey', e.target.value)}
+            placeholder="C5GAME App-Key"
+            size="large"
+            style={{ flex: 1, maxWidth: 350 }}
+          />
+          {accounts.length > 1 && (
+            <Button danger icon={<DeleteOutlined />} onClick={() => handleRemove(idx)} size="large" />
+          )}
+        </Space>
+      ))}
+
+      <Space>
+        <Button icon={<PlusOutlined />} onClick={handleAdd}>添加账号</Button>
+        <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>保存全部</Button>
+      </Space>
+
+      {validCount > 1 && (
+        <Alert type="info" showIcon message={`已配置 ${validCount} 个账号，拉取价格时将自动并行分配批次`} />
+      )}
+    </Space>
+  );
+};
+
+// ── 占位组件：功能开发中 ──
+const PlaceholderConfig: React.FC<{ name: string; desc: string }> = ({ name, desc }) => (
+  <Space direction="vertical" size={16} style={{ width: '100%', alignItems: 'center', padding: '60px 0' }}>
+    <div style={{ fontSize: 48, opacity: 0.3 }}>🔒</div>
+    <Title level={4} style={{ color: 'var(--text-secondary, rgba(0,0,0,0.45))' }}>功能开发中</Title>
+    <Paragraph type="secondary" style={{ textAlign: 'center' }}>
+      {name} {desc}，敬请期待
+    </Paragraph>
+  </Space>
+);
+
+// ── 外部环境配置（价格平台） ──
+const ExternalEnvConfig: React.FC = () => {
+  const subItems = [
+    { key: 'csqaq', label: 'CSQAQ', children: <CsqaAccountConfig /> },
+    { key: 'c5', label: 'C5', children: <C5AccountConfig /> },
+    { key: 'buff', label: 'Buff', children: <PlaceholderConfig name="Buff" desc="价格接口接入" /> },
+    { key: 'eco', label: 'ECO', children: <PlaceholderConfig name="ECO" desc="价格接口接入" /> },
+    { key: 'yyyp', label: '悠悠有品', children: <PlaceholderConfig name="悠悠有品" desc="价格接口接入" /> },
+  ];
+
+  return <Tabs items={subItems} style={{ width: '100%' }} />;
 };
 
 const SettingsPage: React.FC = () => {
@@ -325,14 +467,14 @@ const SettingsPage: React.FC = () => {
 
   const priceTab = (
     <Card bordered={false}>
-      <CsqaTokenConfig />
+      <ExternalEnvConfig />
     </Card>
   );
 
   const items = [
     { key: 'account', label: <span><UserOutlined /> 账号</span>, children: accountTab },
     { key: 'proxy', label: <span><GlobalOutlined /> 代理</span>, children: proxyTab },
-    { key: 'price', label: <span><KeyOutlined /> 价格</span>, children: priceTab },
+    { key: 'price', label: <span><KeyOutlined /> 外部环境配置</span>, children: priceTab },
     { key: 'data', label: <span><DatabaseOutlined /> 数据</span>, children: dataTab },
     { key: 'appearance', label: <span><BgColorsOutlined /> 外观</span>, children: appearanceTab },
     { key: 'about', label: <span><InfoCircleOutlined /> 关于</span>, children: aboutTab },

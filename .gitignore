@@ -40,3 +40,9 @@ coverage/
 # Electron binary
 *.zip
 test-steam-login.ts
+
+# Analysis outputs
+cs2-alchemy-analysis/
+cs2-optimization/
+cs2-mindmap.html
+CS2-Alchemy-Manager-Analysis.md

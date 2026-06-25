@@ -83,12 +83,13 @@ const App: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider
         width={220}
         style={{
           background: 'var(--sider-bg, #001529)',
           borderRight: '1px solid var(--border-color, #303030)',
+          overflow: 'auto',
         }}
       >
         <div
@@ -197,8 +198,8 @@ const App: React.FC = () => {
         </div>
       </Sider>
 
-      <Layout>
-        <Content style={{ padding: 24, overflow: 'auto', background: 'var(--content-bg, #f5f5f5)' }}>
+      <Layout style={{ flex: 1, overflow: 'hidden' }}>
+        <Content style={{ padding: 24, overflow: 'auto', background: 'var(--content-bg, #f5f5f5)', flex: 1 }}>
           <React.Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>加载中...</div>}>
             <Routes>
               <Route path="/" element={<DashboardPage />} />
@@ -220,6 +221,7 @@ const App: React.FC = () => {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexShrink: 0,
           }}
         >
           <Space size={16}>

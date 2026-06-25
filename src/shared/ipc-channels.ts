@@ -47,9 +47,15 @@ export const IPC_CHANNELS = {
   DATA_CLEAR_CACHE:         'data:clear-cache',
 
   // ── Settings ──
-  SETTINGS_GET_CSQA_TOKEN:  'settings:get-csqa-token',
-  SETTINGS_SET_CSQA_TOKEN:  'settings:set-csqa-token',
-  PRICE_FETCH_INVENTORY:    'price:fetch-inventory',
+  SETTINGS_GET_CSQA_TOKEN:    'settings:get-csqa-token',
+  SETTINGS_SET_CSQA_TOKEN:    'settings:set-csqa-token',
+  SETTINGS_GET_CSQA_TOKENS:   'settings:get-csqa-tokens',
+  SETTINGS_SET_CSQA_TOKENS:   'settings:set-csqa-tokens',
+  SETTINGS_GET_CSQA_ACCOUNTS: 'settings:get-csqa-accounts',
+  SETTINGS_SET_CSQA_ACCOUNTS: 'settings:set-csqa-accounts',
+  SETTINGS_GET_C5_ACCOUNTS:   'settings:get-c5-accounts',
+  SETTINGS_SET_C5_ACCOUNTS:   'settings:set-c5-accounts',
+  PRICE_FETCH_INVENTORY:      'price:fetch-inventory',
 
   // ── App ──
   APP_GET_VERSION:          'app:get-version',

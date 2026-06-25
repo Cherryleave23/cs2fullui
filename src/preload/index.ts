@@ -88,6 +88,14 @@ const electronAPI = {
     getSummary: () => ipcRenderer.invoke(IPC_CHANNELS.PRICE_GET_SUMMARY),
     getCsqaToken: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_CSQA_TOKEN),
     setCsqaToken: (token: string) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_CSQA_TOKEN, token),
+    getCsqaTokens: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_CSQA_TOKENS),
+    setCsqaTokens: (tokens: string[]) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_CSQA_TOKENS, tokens),
+    getCsqaAccounts: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_CSQA_ACCOUNTS),
+    setCsqaAccounts: (accounts: Array<{ label: string; token: string }>) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_CSQA_ACCOUNTS, accounts),
+    getC5Accounts: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_C5_ACCOUNTS),
+    setC5Accounts: (accounts: Array<{ label: string; appKey: string }>) =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_C5_ACCOUNTS, accounts),
     onPriceUpdated: (callback: (data: unknown[]) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: unknown[]) => callback(data);
       ipcRenderer.on(IPC_CHANNELS.PUSH_PRICE_UPDATED, handler);

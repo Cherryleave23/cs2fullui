@@ -257,3 +257,11 @@ function emptyResult(inputs: SimInputItem[]): Omit<SimulationResult, 'success'> 
   };
 }
 
+/**
+ * Export collection output data for sub-recipe generator's quick wear check.
+ * Returns the internal COLLECTION_OUTPUTS map: collection → rarity → output skins.
+ */
+export function getCollectionOutputData(): typeof COLLECTION_OUTPUTS {
+  return COLLECTION_OUTPUTS;
+}
+

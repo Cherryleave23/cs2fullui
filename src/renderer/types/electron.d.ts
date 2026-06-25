@@ -50,9 +50,16 @@ export interface ElectronAPI {
     getCache(filter?: Record<string, unknown>): Promise<unknown[]>;
     getHistory(marketHashName: string, days?: number): Promise<unknown[]>;
     refreshAll: () => Promise<void>;
+    fetchInventory: () => Promise<{ note?: string; fetched?: number; failed?: number; skipped?: number; error?: string }>;
     getSummary: () => Promise<unknown>;
     getCsqaToken: () => Promise<{ token: string }>;
     setCsqaToken: (token: string) => Promise<{ success: boolean }>;
+    getCsqaTokens: () => Promise<{ tokens: string[] }>;
+    setCsqaTokens: (tokens: string[]) => Promise<{ success: boolean; count: number }>;
+    getCsqaAccounts: () => Promise<{ accounts: Array<{ label: string; token: string }> }>;
+    setCsqaAccounts: (accounts: Array<{ label: string; token: string }>) => Promise<{ success: boolean; count: number }>;
+    getC5Accounts: () => Promise<{ accounts: Array<{ label: string; appKey: string }> }>;
+    setC5Accounts: (accounts: Array<{ label: string; appKey: string }>) => Promise<{ success: boolean; count: number }>;
   };
   data: {
     downloadCSGOAPI(lang?: 'en' | 'zh-CN'): Promise<{ progress: number; done: boolean }>;
